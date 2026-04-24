@@ -193,12 +193,32 @@ def health() -> dict[str, Any]:
     with connect() as conn:
         image_count = conn.execute("SELECT COUNT(*) AS count FROM images").fetchone()["count"]
         user_count = conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
+
+    def backend_matches(requested: str, actual: str) -> bool:
+        requested = requested.strip().lower()
+        actual = actual.strip().lower()
+        if requested == actual:
+            return True
+        if requested in {"feature", "feature-person", "feature-general"} and actual.startswith("feature"):
+            return True
+        return False
+
     return {
         "ok": True,
         "app": settings.app_name,
         "backend": person_retriever.name,
         "person_backend": person_retriever.name,
         "general_backend": general_retriever.name,
+        "person_backend_requested": settings.person_retriever_backend,
+        "general_backend_requested": settings.general_retriever_backend,
+        "person_backend_fallback": not backend_matches(
+            settings.person_retriever_backend, person_retriever.name
+        ),
+        "general_backend_fallback": not backend_matches(
+            settings.general_retriever_backend, general_retriever.name
+        ),
+        "person_semantic_text": person_retriever.semantic_text,
+        "general_semantic_text": general_retriever.semantic_text,
         "semantic_text": person_retriever.semantic_text or general_retriever.semantic_text,
         "data_dir": str(settings.data_dir),
         "image_count": image_count,
@@ -594,15 +614,21 @@ def score_rows(
     for row in rows:
         image_vector = embedding_for_row(row, target_type)
         visual = cosine_similarity(query_vector, image_vector)
-        if retriever.name == "clip":
+        if retriever.semantic_text:
             visual = (visual + 1.0) / 2.0
+        visual = float(max(0.0, min(1.0, visual)))
         meta = metadata_similarity(query_text, row) if query_text else 0.0
         if query_text and np.linalg.norm(query_vector) <= 1e-8:
             score = meta
-        elif target_type == GENERAL_TARGET:
-            score = (0.62 * visual) + (0.38 * meta if query_text else 0.0)
         else:
-            score = (0.88 * visual) + (0.12 * meta if query_text else 0.0)
+            if query_text:
+                if target_type == GENERAL_TARGET:
+                    visual_weight = 0.86 if retriever.semantic_text else 0.62
+                else:
+                    visual_weight = 0.92 if retriever.semantic_text else 0.88
+                score = (visual_weight * visual) + ((1.0 - visual_weight) * meta)
+            else:
+                score = visual
         scored.append((float(max(0.0, min(1.0, score))), row))
     scored.sort(key=lambda item: item[0], reverse=True)
 

@@ -1,8 +1,42 @@
+const PERSON_TARGET = "person";
+const GENERAL_TARGET = "general";
+
+const SEARCH_CONFIG = {
+  [PERSON_TARGET]: {
+    viewId: "personSearchView",
+    textQueryId: "personTextQuery",
+    textTopKId: "personTextTopK",
+    textGroupId: "personTextGroupByPerson",
+    imageInputId: "personQueryImage",
+    imageNameId: "personQueryImageName",
+    imageTopKId: "personImageTopK",
+    imageGroupId: "personImageGroupByPerson",
+    resultsGridId: "personResultsGrid",
+    metaId: "personSearchMeta",
+    clearId: "clearPersonResults",
+    backendStatusId: "personBackendStatus",
+    emptyMessage: "Waiting for a person retrieval task.",
+  },
+  [GENERAL_TARGET]: {
+    viewId: "generalSearchView",
+    textQueryId: "generalTextQuery",
+    textTopKId: "generalTextTopK",
+    imageInputId: "generalQueryImage",
+    imageNameId: "generalQueryImageName",
+    imageTopKId: "generalImageTopK",
+    resultsGridId: "generalResultsGrid",
+    metaId: "generalSearchMeta",
+    clearId: "clearGeneralResults",
+    backendStatusId: "generalBackendStatus",
+    emptyMessage: "Waiting for a general retrieval task.",
+  },
+};
+
 const state = {
   user: null,
-  currentView: "searchView",
+  currentView: SEARCH_CONFIG[PERSON_TARGET].viewId,
   galleryPage: 1,
-  searchTargetType: "person",
+  searchTargetType: PERSON_TARGET,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -23,6 +57,35 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function targetTypeForView(viewId) {
+  if (viewId === SEARCH_CONFIG[GENERAL_TARGET].viewId) {
+    return GENERAL_TARGET;
+  }
+  return PERSON_TARGET;
+}
+
+function viewIdForTarget(targetType) {
+  return SEARCH_CONFIG[targetType]?.viewId || SEARCH_CONFIG[PERSON_TARGET].viewId;
+}
+
+function currentSearchTarget() {
+  return state.searchTargetType || PERSON_TARGET;
+}
+
+function resultElements(targetType) {
+  const config = SEARCH_CONFIG[targetType] || SEARCH_CONFIG[PERSON_TARGET];
+  return {
+    grid: $(`#${config.resultsGridId}`),
+    meta: $(`#${config.metaId}`),
+  };
+}
+
+function clearResults(targetType) {
+  const config = SEARCH_CONFIG[targetType] || SEARCH_CONFIG[PERSON_TARGET];
+  $(`#${config.resultsGridId}`).innerHTML = "";
+  $(`#${config.metaId}`).textContent = config.emptyMessage;
 }
 
 async function api(path, options = {}) {
@@ -47,81 +110,76 @@ function setAuthVisible(authed) {
 }
 
 function updateUser() {
-  $("#userEmail").textContent = state.user ? `${state.user.email} · ${state.user.role}` : "-";
+  $("#userEmail").textContent = state.user ? `${state.user.email} | ${state.user.role}` : "-";
   $("#adminNav").classList.toggle("hidden", state.user?.role !== "admin");
 }
 
-function isPersonTarget() {
-  return state.searchTargetType === "person";
-}
-
-function updateSearchTargetUI() {
-  const personMode = isPersonTarget();
-  $$(".search-target-button").forEach((button) => {
-    button.classList.toggle("active", button.dataset.targetType === state.searchTargetType);
-  });
-  $("#searchModeHint").textContent = personMode
-    ? "Person branch uses GRAIN and can group all matched identity photos."
-    : "General branch uses OpenCLIP and returns the top similar images directly.";
-  $("#textGroupByPerson").disabled = !personMode;
-  $("#imageGroupByPerson").disabled = !personMode;
-  $("#runAttributeSearch").disabled = !personMode;
-  if (!personMode) {
-    $("#textGroupByPerson").checked = false;
-    $("#imageGroupByPerson").checked = false;
+function formatBackendStatus(label, data, targetType) {
+  const actual = data[`${targetType}_backend`];
+  const requested = data[`${targetType}_backend_requested`];
+  const fallback = data[`${targetType}_backend_fallback`];
+  const semantic = data[`${targetType}_semantic_text`];
+  if (fallback) {
+    return `${label}: ${actual} fallback (requested ${requested}, semantic=${semantic ? "yes" : "no"})`;
   }
-}
-
-async function checkSession() {
-  try {
-    const data = await api("/api/auth/me");
-    state.user = data.user;
-    setAuthVisible(true);
-    updateUser();
-    await refreshHealth();
-    showView(state.currentView);
-  } catch {
-    setAuthVisible(false);
-  }
+  return `${label}: ${actual} (semantic=${semantic ? "yes" : "no"})`;
 }
 
 async function refreshHealth() {
   const data = await api("/api/health");
-  $("#healthBadge").textContent = `person: ${data.person_backend} · general: ${data.general_backend} · ${data.image_count} images`;
+  const personSummary = formatBackendStatus("person", data, PERSON_TARGET);
+  const generalSummary = formatBackendStatus("general", data, GENERAL_TARGET);
+  $("#healthBadge").textContent = `${personSummary} | ${generalSummary} | ${data.image_count} images`;
+  $(`#${SEARCH_CONFIG[PERSON_TARGET].backendStatusId}`).textContent = personSummary;
+  $(`#${SEARCH_CONFIG[GENERAL_TARGET].backendStatusId}`).textContent = generalSummary;
 }
 
 function showView(viewId) {
   state.currentView = viewId;
+  if (viewId === SEARCH_CONFIG[PERSON_TARGET].viewId || viewId === SEARCH_CONFIG[GENERAL_TARGET].viewId) {
+    state.searchTargetType = targetTypeForView(viewId);
+  }
+
   $$(".view").forEach((view) => view.classList.toggle("active-view", view.id === viewId));
   $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === viewId));
 
   const titles = {
-    searchView: ["Search", "Retrieval Workbench"],
+    personSearchView: ["Person Search", "Pedestrian Retrieval Workbench"],
+    generalSearchView: ["General Search", "General Retrieval Workbench"],
     galleryView: ["Gallery", "Gallery"],
     uploadView: ["Upload", "Upload and Index"],
     historyView: ["History", "Search History"],
     adminView: ["Admin", "System Admin"],
     videoView: ["Video", "Video Queue"],
   };
-  const [eyebrow, title] = titles[viewId] || titles.searchView;
+  const [eyebrow, title] = titles[viewId] || titles.personSearchView;
   $("#viewEyebrow").textContent = eyebrow;
   $("#viewTitle").textContent = title;
 
-  if (viewId === "galleryView") loadGallery();
-  if (viewId === "historyView") loadHistory();
-  if (viewId === "adminView") loadInvites();
-  if (viewId === "videoView") loadVideos();
+  if (viewId === "galleryView") {
+    loadGallery().catch((err) => toast(err.message));
+  }
+  if (viewId === "historyView") {
+    loadHistory().catch((err) => toast(err.message));
+  }
+  if (viewId === "adminView") {
+    loadInvites().catch((err) => toast(err.message));
+  }
+  if (viewId === "videoView") {
+    loadVideos().catch((err) => toast(err.message));
+  }
 }
 
 function imageCard(image, options = {}) {
   const score = image.similarity_pct;
+  const searchTargetType = options.targetType || currentSearchTarget();
   const chips = [
     image.dataset ? `<span class="chip">${escapeHtml(image.dataset)}</span>` : "",
     image.person_key ? `<span class="chip">ID ${escapeHtml(image.person_key)}</span>` : "",
     score != null ? `<span class="chip">${score}%</span>` : "",
   ].join("");
   const searchButton = options.searchButton
-    ? `<button class="secondary-button image-id-search" data-image-id="${image.id}" type="button">Search by Image</button>`
+    ? `<button class="secondary-button image-id-search" data-image-id="${image.id}" data-target-type="${searchTargetType}" type="button">Search by Image</button>`
     : "";
   const deleteButton = options.deleteButton && image.can_delete
     ? `<button class="ghost-button image-delete" data-image-id="${image.id}" type="button">Delete</button>`
@@ -141,94 +199,119 @@ function imageCard(image, options = {}) {
   `;
 }
 
-function renderResults(data) {
-  const meta = [
+function renderResults(data, targetType) {
+  const resolvedTargetType = targetType || data.target_type || currentSearchTarget();
+  const { grid, meta } = resultElements(resolvedTargetType);
+  const metaParts = [
     `${data.latency_ms} ms`,
     `backend: ${data.backend}`,
-    `target: ${data.target_type || state.searchTargetType}`,
+    `target: ${resolvedTargetType}`,
     data.grouped_by_person ? "grouped by person" : "top similar images",
     data.matched_person_key ? `matched person: ${data.matched_person_key}` : "",
     data.translated_query && data.translated_query !== data.query ? `query: ${data.translated_query}` : "",
   ].filter(Boolean);
 
-  $("#searchMeta").textContent = `${meta.join(" · ")} · ${data.results.length} results`;
-  $("#resultsGrid").innerHTML = data.results.length
-    ? data.results.map((item) => imageCard(item, { searchButton: true, deleteButton: true })).join("")
+  meta.textContent = `${metaParts.join(" | ")} | ${data.results.length} results`;
+  grid.innerHTML = data.results.length
+    ? data.results
+      .map((item) => imageCard(item, { searchButton: true, deleteButton: true, targetType: resolvedTargetType }))
+      .join("")
     : `<p class="muted">No results yet. Upload images first and then retry.</p>`;
 }
 
-async function runTextSearch() {
-  const text = $("#textQuery").value.trim();
+async function runTextSearch(targetType) {
+  const config = SEARCH_CONFIG[targetType];
+  const text = $(`#${config.textQueryId}`).value.trim();
   if (!text) {
     toast("Please enter a text query.");
     return;
   }
+  const payload = {
+    text,
+    top_k: Number($(`#${config.textTopKId}`).value || 24),
+    group_by_person: targetType === PERSON_TARGET
+      ? $(`#${config.textGroupId}`).checked
+      : false,
+    target_type: targetType,
+  };
   const data = await api("/api/search/text", {
     method: "POST",
-    body: JSON.stringify({
-      text,
-      top_k: Number($("#textTopK").value || 24),
-      group_by_person: isPersonTarget() && $("#textGroupByPerson").checked,
-      target_type: state.searchTargetType,
-    }),
+    body: JSON.stringify(payload),
   });
-  renderResults(data);
+  renderResults(data, targetType);
   await refreshHealth();
 }
 
 async function runAttributeSearch() {
-  if (!isPersonTarget()) {
-    toast("Attribute search is available only for the person branch.");
-    return;
-  }
   const attributes = {
-    gender: $("#attrGender").value,
-    top_color: $("#attrTopColor").value,
-    top_type: $("#attrTopType").value,
-    bottom_color: $("#attrBottomColor").value,
-    bottom_type: $("#attrBottomType").value,
-    accessory: $("#attrAccessory").value,
-    extra: $("#attrExtra").value,
+    gender: $("#personAttrGender").value,
+    top_color: $("#personAttrTopColor").value,
+    top_type: $("#personAttrTopType").value,
+    bottom_color: $("#personAttrBottomColor").value,
+    bottom_type: $("#personAttrBottomType").value,
+    accessory: $("#personAttrAccessory").value,
+    extra: $("#personAttrExtra").value,
   };
   const data = await api("/api/search/attributes", {
     method: "POST",
     body: JSON.stringify({
       attributes,
-      top_k: Number($("#textTopK").value || 24),
-      group_by_person: $("#textGroupByPerson").checked,
-      target_type: "person",
+      top_k: Number($("#personTextTopK").value || 24),
+      group_by_person: $("#personTextGroupByPerson").checked,
+      target_type: PERSON_TARGET,
     }),
   });
-  renderResults(data);
+  renderResults(data, PERSON_TARGET);
 }
 
-async function runImageSearch() {
-  const file = $("#queryImage").files[0];
+async function runImageSearch(targetType) {
+  const config = SEARCH_CONFIG[targetType];
+  const file = $(`#${config.imageInputId}`).files[0];
   if (!file) {
     toast("Please select a query image.");
     return;
   }
   const form = new FormData();
   form.append("file", file);
-  form.append("top_k", $("#imageTopK").value || "24");
-  form.append("group_by_person", isPersonTarget() && $("#imageGroupByPerson").checked ? "true" : "false");
-  form.append("target_type", state.searchTargetType);
+  form.append("top_k", $(`#${config.imageTopKId}`).value || "24");
+  form.append(
+    "group_by_person",
+    targetType === PERSON_TARGET && $(`#${config.imageGroupId}`).checked ? "true" : "false",
+  );
+  form.append("target_type", targetType);
   const data = await api("/api/search/image", { method: "POST", body: form });
-  renderResults(data);
+  renderResults(data, targetType);
 }
 
-async function runImageIdSearch(imageId) {
+async function runImageIdSearch(imageId, targetType) {
+  const resolvedTargetType = targetType || currentSearchTarget();
+  const config = SEARCH_CONFIG[resolvedTargetType];
   const data = await api("/api/search/image-id", {
     method: "POST",
     body: JSON.stringify({
       image_id: Number(imageId),
-      top_k: Number($("#imageTopK").value || 24),
-      group_by_person: isPersonTarget() && $("#imageGroupByPerson").checked,
-      target_type: state.searchTargetType,
+      top_k: Number($(`#${config.imageTopKId}`).value || 24),
+      group_by_person: resolvedTargetType === PERSON_TARGET
+        ? $(`#${config.imageGroupId}`).checked
+        : false,
+      target_type: resolvedTargetType,
     }),
   });
-  renderResults(data);
-  showView("searchView");
+  renderResults(data, resolvedTargetType);
+  showView(viewIdForTarget(resolvedTargetType));
+}
+
+async function checkSession() {
+  try {
+    const data = await api("/api/auth/me");
+    state.user = data.user;
+    setAuthVisible(true);
+    updateUser();
+    await refreshHealth();
+    showView(state.currentView);
+  } catch {
+    setAuthVisible(false);
+  }
 }
 
 async function loadGallery() {
@@ -239,9 +322,11 @@ async function loadGallery() {
     page_size: "72",
   });
   const data = await api(`/api/images?${params}`);
-  $("#galleryCount").textContent = `${data.total} images · ${data.visibility_scope === "all" ? "all uploads" : "my uploads only"}`;
+  $("#galleryCount").textContent = `${data.total} images | ${data.visibility_scope === "all" ? "all uploads" : "my uploads only"}`;
   $("#galleryGrid").innerHTML = data.images.length
-    ? data.images.map((item) => imageCard(item, { searchButton: true, deleteButton: true })).join("")
+    ? data.images
+      .map((item) => imageCard(item, { searchButton: true, deleteButton: true, targetType: currentSearchTarget() }))
+      .join("")
     : `<p class="muted">No visible images in the gallery yet.</p>`;
 
   const currentDataset = $("#datasetFilter").value;
@@ -297,6 +382,12 @@ async function deleteImage(imageId) {
   if (state.currentView === "galleryView") {
     await loadGallery();
   }
+  if (state.currentView === SEARCH_CONFIG[PERSON_TARGET].viewId) {
+    clearResults(PERSON_TARGET);
+  }
+  if (state.currentView === SEARCH_CONFIG[GENERAL_TARGET].viewId) {
+    clearResults(GENERAL_TARGET);
+  }
   toast("Image deleted.");
 }
 
@@ -306,8 +397,8 @@ async function loadHistory() {
     ? data.history.map((item) => `
       <article class="history-item">
         <header>
-          <strong>${escapeHtml(item.mode)} · ${escapeHtml(item.query_text || "")}</strong>
-          <span class="muted">${item.latency_ms} ms · ${escapeHtml(item.backend)}</span>
+          <strong>${escapeHtml(item.mode)} | ${escapeHtml(item.query_text || "")}</strong>
+          <span class="muted">${item.latency_ms} ms | ${escapeHtml(item.backend)}</span>
         </header>
         ${item.translated_text ? `<p class="muted">${escapeHtml(item.translated_text)}</p>` : ""}
         <div class="history-strip">
@@ -327,7 +418,7 @@ async function loadInvites() {
           <strong>${escapeHtml(invite.code)}</strong>
           <span class="muted">${invite.used_count}/${invite.max_uses}</span>
         </header>
-        <p class="muted">${escapeHtml(invite.label || "no label")} ${invite.expires_at ? "· expires " + escapeHtml(invite.expires_at) : ""}</p>
+        <p class="muted">${escapeHtml(invite.label || "no label")} ${invite.expires_at ? `| expires ${escapeHtml(invite.expires_at)}` : ""}</p>
       </article>
     `).join("")
     : `<p class="muted">No invite codes yet.</p>`;
@@ -352,7 +443,7 @@ async function reindex() {
   $("#reindexReport").textContent = "Rebuilding embeddings...";
   try {
     const data = await api("/api/admin/reindex", { method: "POST", body: JSON.stringify({}) });
-    $("#reindexReport").textContent = `${data.backend} · ${data.count} images · ${data.latency_ms} ms`;
+    $("#reindexReport").textContent = `${data.backend} | ${data.count} images | ${data.latency_ms} ms`;
     await refreshHealth();
   } finally {
     $("#reindexButton").disabled = false;
@@ -388,6 +479,12 @@ async function loadVideos() {
     : `<p class="muted">No queued videos yet.</p>`;
 }
 
+function bindFileLabel(inputId, labelId, fallbackText) {
+  $(`#${inputId}`).addEventListener("change", (event) => {
+    $(`#${labelId}`).textContent = event.target.files[0]?.name || fallbackText;
+  });
+}
+
 function bindEvents() {
   $$(".tab-button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -408,7 +505,7 @@ function bindEvents() {
     state.user = data.user;
     setAuthVisible(true);
     updateUser();
-    showView("searchView");
+    showView(SEARCH_CONFIG[PERSON_TARGET].viewId);
     await refreshHealth();
   });
 
@@ -422,7 +519,7 @@ function bindEvents() {
     state.user = data.user;
     setAuthVisible(true);
     updateUser();
-    showView("searchView");
+    showView(SEARCH_CONFIG[PERSON_TARGET].viewId);
     await refreshHealth();
   });
 
@@ -436,24 +533,18 @@ function bindEvents() {
     button.addEventListener("click", () => showView(button.dataset.view));
   });
 
-  $$(".search-target-button").forEach((button) => {
-    button.addEventListener("click", () => {
-      state.searchTargetType = button.dataset.targetType;
-      updateSearchTargetUI();
-    });
-  });
+  $("#runPersonTextSearch").addEventListener("click", () => runTextSearch(PERSON_TARGET).catch((err) => toast(err.message)));
+  $("#runGeneralTextSearch").addEventListener("click", () => runTextSearch(GENERAL_TARGET).catch((err) => toast(err.message)));
+  $("#runPersonAttributeSearch").addEventListener("click", () => runAttributeSearch().catch((err) => toast(err.message)));
+  $("#runPersonImageSearch").addEventListener("click", () => runImageSearch(PERSON_TARGET).catch((err) => toast(err.message)));
+  $("#runGeneralImageSearch").addEventListener("click", () => runImageSearch(GENERAL_TARGET).catch((err) => toast(err.message)));
 
-  $("#runTextSearch").addEventListener("click", () => runTextSearch().catch((err) => toast(err.message)));
-  $("#runAttributeSearch").addEventListener("click", () => runAttributeSearch().catch((err) => toast(err.message)));
-  $("#runImageSearch").addEventListener("click", () => runImageSearch().catch((err) => toast(err.message)));
-  $("#clearResults").addEventListener("click", () => {
-    $("#resultsGrid").innerHTML = "";
-    $("#searchMeta").textContent = "Waiting for a retrieval task.";
-  });
+  $(`#${SEARCH_CONFIG[PERSON_TARGET].clearId}`).addEventListener("click", () => clearResults(PERSON_TARGET));
+  $(`#${SEARCH_CONFIG[GENERAL_TARGET].clearId}`).addEventListener("click", () => clearResults(GENERAL_TARGET));
 
-  $("#queryImage").addEventListener("change", (event) => {
-    $("#queryImageName").textContent = event.target.files[0]?.name || "No file selected";
-  });
+  bindFileLabel("personQueryImage", "personQueryImageName", "No file selected");
+  bindFileLabel("generalQueryImage", "generalQueryImageName", "No file selected");
+
   $("#uploadFiles").addEventListener("change", (event) => {
     $("#uploadFolderCount").textContent = `${event.target.files.length} files`;
   });
@@ -480,8 +571,12 @@ function bindEvents() {
   document.body.addEventListener("click", (event) => {
     const searchButton = event.target.closest(".image-id-search");
     if (searchButton) {
-      runImageIdSearch(searchButton.dataset.imageId).catch((err) => toast(err.message));
+      runImageIdSearch(
+        searchButton.dataset.imageId,
+        searchButton.dataset.targetType || currentSearchTarget(),
+      ).catch((err) => toast(err.message));
     }
+
     const deleteButton = event.target.closest(".image-delete");
     if (deleteButton) {
       deleteImage(deleteButton.dataset.imageId).catch((err) => toast(err.message));
@@ -490,5 +585,6 @@ function bindEvents() {
 }
 
 bindEvents();
-updateSearchTargetUI();
+clearResults(PERSON_TARGET);
+clearResults(GENERAL_TARGET);
 checkSession();

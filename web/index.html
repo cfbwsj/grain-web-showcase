@@ -69,12 +69,22 @@
           </div>
         </div>
         <nav class="nav-list" aria-label="Main navigation">
-          <button class="nav-item active" data-view="searchView" type="button">Search</button>
-          <button class="nav-item" data-view="galleryView" type="button">Gallery</button>
-          <button class="nav-item" data-view="uploadView" type="button">Upload</button>
-          <button class="nav-item" data-view="historyView" type="button">History</button>
-          <button class="nav-item" data-view="videoView" type="button">Video</button>
-          <button id="adminNav" class="nav-item hidden" data-view="adminView" type="button">Admin</button>
+          <section class="nav-section">
+            <p class="nav-section-label">Retrieval</p>
+            <button class="nav-item active" data-view="personSearchView" type="button">Person Search</button>
+            <button class="nav-item" data-view="generalSearchView" type="button">General Search</button>
+          </section>
+          <section class="nav-section">
+            <p class="nav-section-label">Library</p>
+            <button class="nav-item" data-view="galleryView" type="button">Gallery</button>
+            <button class="nav-item" data-view="uploadView" type="button">Upload</button>
+            <button class="nav-item" data-view="historyView" type="button">History</button>
+            <button class="nav-item" data-view="videoView" type="button">Video</button>
+          </section>
+          <section class="nav-section">
+            <p class="nav-section-label">Admin</p>
+            <button id="adminNav" class="nav-item hidden" data-view="adminView" type="button">Admin Panel</button>
+          </section>
         </nav>
         <div class="user-panel">
           <span id="userEmail">-</span>
@@ -91,84 +101,86 @@
           <div id="healthBadge" class="health-badge">checking...</div>
         </header>
 
-        <section id="searchView" class="view active-view">
-          <section class="search-mode-strip">
-            <div class="mode-toggle" id="searchTargetToggle">
-              <button class="mode-button search-target-button active" data-target-type="person" type="button">Person Search</button>
-              <button class="mode-button search-target-button" data-target-type="general" type="button">General Search</button>
+        <section id="personSearchView" class="view active-view">
+          <section class="search-hero">
+            <div>
+              <h3>Person Retrieval</h3>
+              <p class="muted">
+                Dedicated pedestrian branch. Text, attribute, and image queries all stay in the person pipeline and can group the matched identity.
+              </p>
             </div>
-            <p id="searchModeHint" class="muted">Person search groups same-identity photos. General search returns top similar images directly.</p>
+            <div id="personBackendStatus" class="search-status">Checking backend...</div>
           </section>
 
           <div class="tool-grid">
             <section class="panel">
               <div class="panel-title">
-                <h3>Text Search</h3>
-                <span>Chinese queries can be normalized on the backend</span>
+                <h3>Person Text Search</h3>
+                <span>Chinese text is normalized before retrieval</span>
               </div>
-              <textarea id="textQuery" rows="4" placeholder="Example: red jacket with black backpack / blue car / black suitcase"></textarea>
+              <textarea id="personTextQuery" rows="4" placeholder="Example: man in a red jacket with black backpack"></textarea>
               <div class="inline-controls">
-                <label class="check-row"><input id="textGroupByPerson" type="checkbox" checked /> Group same identity photos</label>
-                <label>Top K <input id="textTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
+                <label class="check-row"><input id="personTextGroupByPerson" type="checkbox" checked /> Group same identity photos</label>
+                <label>Top K <input id="personTextTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
               </div>
-              <button id="runTextSearch" class="primary-button" type="button">Run Text Search</button>
+              <button id="runPersonTextSearch" class="primary-button" type="button">Run Person Text Search</button>
             </section>
 
             <section class="panel">
               <div class="panel-title">
-                <h3>Attribute Search</h3>
-                <span>Person-only branch powered by attribute composition</span>
+                <h3>Person Attribute Search</h3>
+                <span>Only available for pedestrian retrieval</span>
               </div>
               <div class="attribute-grid">
-                <select id="attrGender">
+                <select id="personAttrGender">
                   <option value="person">person</option>
                   <option value="man">man</option>
                   <option value="woman">woman</option>
                 </select>
-                <select id="attrTopColor">
+                <select id="personAttrTopColor">
                   <option value="">top color</option>
                   <option>black</option><option>white</option><option>red</option><option>blue</option>
                   <option>green</option><option>yellow</option><option>gray</option><option>brown</option>
                   <option>orange</option><option>pink</option><option>purple</option>
                 </select>
-                <select id="attrTopType">
+                <select id="personAttrTopType">
                   <option value="">top type</option>
                   <option>shirt</option><option>jacket</option><option>hoodie</option><option>dress</option>
                 </select>
-                <select id="attrBottomColor">
+                <select id="personAttrBottomColor">
                   <option value="">bottom color</option>
                   <option>black</option><option>white</option><option>blue</option><option>gray</option>
                   <option>brown</option><option>red</option>
                 </select>
-                <select id="attrBottomType">
+                <select id="personAttrBottomType">
                   <option value="">bottom type</option>
                   <option>pants</option><option>jeans</option><option>shorts</option><option>skirt</option>
                 </select>
-                <select id="attrAccessory">
+                <select id="personAttrAccessory">
                   <option value="">accessory</option>
                   <option>backpack</option><option>bag</option><option>hat</option><option>glasses</option>
                   <option>mask</option><option>scarf</option>
                 </select>
               </div>
-              <input id="attrExtra" type="text" placeholder="extra description, e.g. walking, holding phone" />
-              <button id="runAttributeSearch" class="secondary-button" type="button">Run Attribute Search</button>
+              <input id="personAttrExtra" type="text" placeholder="extra description, e.g. walking, holding phone" />
+              <button id="runPersonAttributeSearch" class="secondary-button" type="button">Run Attribute Search</button>
             </section>
 
             <section class="panel">
               <div class="panel-title">
-                <h3>Image Search</h3>
-                <span>Use the current search mode for the uploaded query image</span>
+                <h3>Person Image Search</h3>
+                <span>Returns the matched identity and related photos</span>
               </div>
               <label class="dropzone">
-                <input id="queryImage" type="file" accept="image/*" />
+                <input id="personQueryImage" type="file" accept="image/*" />
                 <span>Select a query image</span>
-                <strong id="queryImageName">No file selected</strong>
+                <strong id="personQueryImageName">No file selected</strong>
               </label>
               <div class="inline-controls">
-                <label class="check-row"><input id="imageGroupByPerson" type="checkbox" checked /> Group same identity photos</label>
-                <label>Top K <input id="imageTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
+                <label class="check-row"><input id="personImageGroupByPerson" type="checkbox" checked /> Group same identity photos</label>
+                <label>Top K <input id="personImageTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
               </div>
-              <button id="runImageSearch" class="primary-button" type="button">Run Image Search</button>
+              <button id="runPersonImageSearch" class="primary-button" type="button">Run Person Image Search</button>
             </section>
           </div>
 
@@ -176,11 +188,64 @@
             <div class="section-bar">
               <div>
                 <h3>Results</h3>
-                <p id="searchMeta" class="muted">Waiting for a retrieval task.</p>
+                <p id="personSearchMeta" class="muted">Waiting for a person retrieval task.</p>
               </div>
-              <button id="clearResults" class="ghost-button" type="button">Clear</button>
+              <button id="clearPersonResults" class="ghost-button" type="button">Clear</button>
             </div>
-            <div id="resultsGrid" class="image-grid"></div>
+            <div id="personResultsGrid" class="image-grid"></div>
+          </section>
+        </section>
+
+        <section id="generalSearchView" class="view">
+          <section class="search-hero">
+            <div>
+              <h3>General Retrieval</h3>
+              <p class="muted">
+                Separate OpenCLIP branch for objects, scenes, and non-person text queries. This branch returns the top similar images directly.
+              </p>
+            </div>
+            <div id="generalBackendStatus" class="search-status">Checking backend...</div>
+          </section>
+
+          <div class="tool-grid two-column-tools">
+            <section class="panel">
+              <div class="panel-title">
+                <h3>General Text Search</h3>
+                <span>Use this for cars, bags, suitcases, scenes, and other non-person queries</span>
+              </div>
+              <textarea id="generalTextQuery" rows="4" placeholder="Example: blue car / black suitcase / red bicycle near the station"></textarea>
+              <div class="inline-controls">
+                <label>Top K <input id="generalTextTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
+              </div>
+              <button id="runGeneralTextSearch" class="primary-button" type="button">Run General Text Search</button>
+            </section>
+
+            <section class="panel">
+              <div class="panel-title">
+                <h3>General Image Search</h3>
+                <span>Use an object or scene image as the query</span>
+              </div>
+              <label class="dropzone">
+                <input id="generalQueryImage" type="file" accept="image/*" />
+                <span>Select a query image</span>
+                <strong id="generalQueryImageName">No file selected</strong>
+              </label>
+              <div class="inline-controls">
+                <label>Top K <input id="generalImageTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
+              </div>
+              <button id="runGeneralImageSearch" class="primary-button" type="button">Run General Image Search</button>
+            </section>
+          </div>
+
+          <section class="results-section">
+            <div class="section-bar">
+              <div>
+                <h3>Results</h3>
+                <p id="generalSearchMeta" class="muted">Waiting for a general retrieval task.</p>
+              </div>
+              <button id="clearGeneralResults" class="ghost-button" type="button">Clear</button>
+            </div>
+            <div id="generalResultsGrid" class="image-grid"></div>
           </section>
         </section>
 

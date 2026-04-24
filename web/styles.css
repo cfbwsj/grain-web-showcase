@@ -249,8 +249,22 @@ label {
 
 .nav-list {
   display: grid;
-  gap: 8px;
+  gap: 18px;
   align-content: start;
+}
+
+.nav-section {
+  display: grid;
+  gap: 8px;
+}
+
+.nav-section-label {
+  margin: 0 4px;
+  color: #93a29c;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .nav-item {
@@ -319,6 +333,42 @@ label {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   align-items: stretch;
+}
+
+.two-column-tools {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.search-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 16px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(19, 30, 36, 0.06);
+}
+
+.search-hero h3 {
+  margin: 0 0 8px;
+}
+
+.search-hero p {
+  margin: 0;
+  max-width: 760px;
+}
+
+.search-status {
+  min-width: min(420px, 100%);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f4f8f7;
+  color: #395047;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .search-mode-strip {
@@ -585,7 +635,8 @@ button:disabled {
 
 @media (max-width: 1100px) {
   .tool-grid,
-  .admin-grid {
+  .admin-grid,
+  .two-column-tools {
     grid-template-columns: 1fr;
   }
 
@@ -615,7 +666,8 @@ button:disabled {
 
   .topbar,
   .section-bar,
-  .panel-title {
+  .panel-title,
+  .search-hero {
     align-items: stretch;
     flex-direction: column;
   }
