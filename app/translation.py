@@ -126,6 +126,21 @@ ZH_TO_EN = {
     "\u82b1": "flower",
     "\u8349": "grass",
     "\u5929\u7a7a": "sky",
+    "\u8001\u864e": "tiger",
+    "\u72ee\u5b50": "lion",
+    "\u8c79\u5b50": "leopard",
+    "\u718a\u732b": "panda",
+    "\u72d7\u718a": "bear",
+    "\u718a": "bear",
+    "\u5927\u8c61": "elephant",
+    "\u7334\u5b50": "monkey",
+    "\u6591\u9a6c": "zebra",
+    "\u957f\u9888\u9e7f": "giraffe",
+    "\u9a6c": "horse",
+    "\u725b": "cow",
+    "\u7f8a": "sheep",
+    "\u732a": "pig",
+    "\u5154\u5b50": "rabbit",
     "\u732b": "cat",
     "\u72d7": "dog",
     "\u9e1f": "bird",
@@ -140,10 +155,12 @@ def _ordered_tokens(text: str) -> list[str]:
     tokens: list[str] = []
     lowered_ascii = [token.lower() for token in ASCII_TOKEN_RE.findall(text or "")]
     normalized_text = re.sub(r"[，。！？、；：,.!?;:/\\()\[\]{}]+", " ", text or "")
+    working_text = normalized_text
 
     for zh, en in sorted(ZH_TO_EN.items(), key=lambda item: len(item[0]), reverse=True):
-        if zh in normalized_text and en not in tokens:
+        if zh in working_text and en not in tokens:
             tokens.append(en)
+            working_text = working_text.replace(zh, " ")
 
     for token in lowered_ascii:
         if token not in tokens:
