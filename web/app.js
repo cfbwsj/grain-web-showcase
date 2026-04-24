@@ -2,6 +2,7 @@ const state = {
   user: null,
   currentView: "searchView",
   galleryPage: 1,
+  searchTargetType: "person",
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -35,7 +36,7 @@ async function api(path, options = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.detail || `请求失败：${response.status}`);
+    throw new Error(data.detail || `Request failed: ${response.status}`);
   }
   return data;
 }
@@ -48,6 +49,27 @@ function setAuthVisible(authed) {
 function updateUser() {
   $("#userEmail").textContent = state.user ? `${state.user.email} · ${state.user.role}` : "-";
   $("#adminNav").classList.toggle("hidden", state.user?.role !== "admin");
+}
+
+function isPersonTarget() {
+  return state.searchTargetType === "person";
+}
+
+function updateSearchTargetUI() {
+  const personMode = isPersonTarget();
+  $$(".search-target-button").forEach((button) => {
+    button.classList.toggle("active", button.dataset.targetType === state.searchTargetType);
+  });
+  $("#searchModeHint").textContent = personMode
+    ? "Person branch uses GRAIN and can group all matched identity photos."
+    : "General branch uses OpenCLIP and returns the top similar images directly.";
+  $("#textGroupByPerson").disabled = !personMode;
+  $("#imageGroupByPerson").disabled = !personMode;
+  $("#runAttributeSearch").disabled = !personMode;
+  if (!personMode) {
+    $("#textGroupByPerson").checked = false;
+    $("#imageGroupByPerson").checked = false;
+  }
 }
 
 async function checkSession() {
@@ -65,7 +87,7 @@ async function checkSession() {
 
 async function refreshHealth() {
   const data = await api("/api/health");
-  $("#healthBadge").textContent = `${data.backend} · ${data.image_count} images`;
+  $("#healthBadge").textContent = `person: ${data.person_backend} · general: ${data.general_backend} · ${data.image_count} images`;
 }
 
 function showView(viewId) {
@@ -74,12 +96,12 @@ function showView(viewId) {
   $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === viewId));
 
   const titles = {
-    searchView: ["Search", "检索工作台"],
-    galleryView: ["Gallery", "图库数据"],
-    uploadView: ["Upload", "上传与建库"],
-    historyView: ["History", "检索历史"],
-    adminView: ["Admin", "系统管理"],
-    videoView: ["Video", "视频接口"],
+    searchView: ["Search", "Retrieval Workbench"],
+    galleryView: ["Gallery", "Gallery"],
+    uploadView: ["Upload", "Upload and Index"],
+    historyView: ["History", "Search History"],
+    adminView: ["Admin", "System Admin"],
+    videoView: ["Video", "Video Queue"],
   };
   const [eyebrow, title] = titles[viewId] || titles.searchView;
   $("#viewEyebrow").textContent = eyebrow;
@@ -98,9 +120,14 @@ function imageCard(image, options = {}) {
     image.person_key ? `<span class="chip">ID ${escapeHtml(image.person_key)}</span>` : "",
     score != null ? `<span class="chip">${score}%</span>` : "",
   ].join("");
-  const button = options.searchButton
-    ? `<button class="secondary-button image-id-search" data-image-id="${image.id}">以此图检索</button>`
+  const searchButton = options.searchButton
+    ? `<button class="secondary-button image-id-search" data-image-id="${image.id}" type="button">Search by Image</button>`
     : "";
+  const deleteButton = options.deleteButton && image.can_delete
+    ? `<button class="ghost-button image-delete" data-image-id="${image.id}" type="button">Delete</button>`
+    : "";
+  const actions = [searchButton, deleteButton].filter(Boolean).join("");
+
   return `
     <article class="image-card">
       <img src="${image.thumbnail_url || image.url}" alt="${escapeHtml(image.original_filename)}" loading="lazy" />
@@ -108,7 +135,7 @@ function imageCard(image, options = {}) {
         <strong title="${escapeHtml(image.original_filename)}">${escapeHtml(image.original_filename)}</strong>
         <div class="meta-line">${chips}</div>
         ${score != null ? `<div class="score-bar"><span style="width:${score}%"></span></div>` : ""}
-        ${button}
+        ${actions ? `<div class="card-actions">${actions}</div>` : ""}
       </div>
     </article>
   `;
@@ -118,24 +145,31 @@ function renderResults(data) {
   const meta = [
     `${data.latency_ms} ms`,
     `backend: ${data.backend}`,
+    `target: ${data.target_type || state.searchTargetType}`,
+    data.grouped_by_person ? "grouped by person" : "top similar images",
     data.matched_person_key ? `matched person: ${data.matched_person_key}` : "",
     data.translated_query && data.translated_query !== data.query ? `query: ${data.translated_query}` : "",
   ].filter(Boolean);
+
   $("#searchMeta").textContent = `${meta.join(" · ")} · ${data.results.length} results`;
   $("#resultsGrid").innerHTML = data.results.length
-    ? data.results.map((item) => imageCard(item, { searchButton: true })).join("")
-    : `<p class="muted">没有命中结果，先上传图片集再试。</p>`;
+    ? data.results.map((item) => imageCard(item, { searchButton: true, deleteButton: true })).join("")
+    : `<p class="muted">No results yet. Upload images first and then retry.</p>`;
 }
 
 async function runTextSearch() {
   const text = $("#textQuery").value.trim();
-  if (!text) return toast("请输入检索文本");
+  if (!text) {
+    toast("Please enter a text query.");
+    return;
+  }
   const data = await api("/api/search/text", {
     method: "POST",
     body: JSON.stringify({
       text,
       top_k: Number($("#textTopK").value || 24),
-      group_by_person: $("#textGroupByPerson").checked,
+      group_by_person: isPersonTarget() && $("#textGroupByPerson").checked,
+      target_type: state.searchTargetType,
     }),
   });
   renderResults(data);
@@ -143,6 +177,10 @@ async function runTextSearch() {
 }
 
 async function runAttributeSearch() {
+  if (!isPersonTarget()) {
+    toast("Attribute search is available only for the person branch.");
+    return;
+  }
   const attributes = {
     gender: $("#attrGender").value,
     top_color: $("#attrTopColor").value,
@@ -158,6 +196,7 @@ async function runAttributeSearch() {
       attributes,
       top_k: Number($("#textTopK").value || 24),
       group_by_person: $("#textGroupByPerson").checked,
+      target_type: "person",
     }),
   });
   renderResults(data);
@@ -165,11 +204,15 @@ async function runAttributeSearch() {
 
 async function runImageSearch() {
   const file = $("#queryImage").files[0];
-  if (!file) return toast("请选择查询图片");
+  if (!file) {
+    toast("Please select a query image.");
+    return;
+  }
   const form = new FormData();
   form.append("file", file);
   form.append("top_k", $("#imageTopK").value || "24");
-  form.append("group_by_person", $("#imageGroupByPerson").checked ? "true" : "false");
+  form.append("group_by_person", isPersonTarget() && $("#imageGroupByPerson").checked ? "true" : "false");
+  form.append("target_type", state.searchTargetType);
   const data = await api("/api/search/image", { method: "POST", body: form });
   renderResults(data);
 }
@@ -180,7 +223,8 @@ async function runImageIdSearch(imageId) {
     body: JSON.stringify({
       image_id: Number(imageId),
       top_k: Number($("#imageTopK").value || 24),
-      group_by_person: $("#imageGroupByPerson").checked,
+      group_by_person: isPersonTarget() && $("#imageGroupByPerson").checked,
+      target_type: state.searchTargetType,
     }),
   });
   renderResults(data);
@@ -195,13 +239,13 @@ async function loadGallery() {
     page_size: "72",
   });
   const data = await api(`/api/images?${params}`);
-  $("#galleryCount").textContent = `${data.total} images`;
+  $("#galleryCount").textContent = `${data.total} images · ${data.visibility_scope === "all" ? "all uploads" : "my uploads only"}`;
   $("#galleryGrid").innerHTML = data.images.length
-    ? data.images.map((item) => imageCard(item, { searchButton: true })).join("")
-    : `<p class="muted">图库为空，请先上传图片。</p>`;
+    ? data.images.map((item) => imageCard(item, { searchButton: true, deleteButton: true })).join("")
+    : `<p class="muted">No visible images in the gallery yet.</p>`;
 
   const currentDataset = $("#datasetFilter").value;
-  $("#datasetFilter").innerHTML = `<option value="">全部数据集</option>` + data.datasets
+  $("#datasetFilter").innerHTML = `<option value="">all datasets</option>` + data.datasets
     .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
     .join("");
   $("#datasetFilter").value = currentDataset;
@@ -211,29 +255,49 @@ async function uploadImages() {
   const folderFiles = Array.from($("#uploadFiles").files);
   const flatFiles = Array.from($("#uploadFlatFiles").files);
   const files = [...folderFiles, ...flatFiles];
-  if (!files.length) return toast("请选择图片");
+  if (!files.length) {
+    toast("Please choose images to upload.");
+    return;
+  }
   const form = new FormData();
   files.forEach((file) => form.append("files", file, file.webkitRelativePath || file.name));
   form.append("dataset", $("#uploadDataset").value || "demo");
   form.append("person_key", $("#uploadPersonKey").value || "");
   form.append("tags", $("#uploadTags").value || "");
   form.append("infer_person", $("#uploadInferPerson").checked ? "true" : "false");
+
   $("#uploadButton").disabled = true;
-  $("#uploadButton").textContent = "上传中...";
+  $("#uploadButton").textContent = "Uploading...";
   try {
     const data = await api("/api/images/upload", { method: "POST", body: form });
     $("#uploadReport").innerHTML = `
       <div class="history-item">
-        <strong>已上传 ${data.count} 张图片</strong>
-        ${data.errors.length ? `<p class="muted">部分失败：${data.errors.map(escapeHtml).join("；")}</p>` : ""}
+        <strong>Uploaded ${data.count} images</strong>
+        ${data.errors.length ? `<p class="muted">Partial failures: ${data.errors.map(escapeHtml).join(" ; ")}</p>` : ""}
       </div>
     `;
     await refreshHealth();
-    toast("图片已入库");
+    if (state.currentView === "galleryView") {
+      await loadGallery();
+    }
+    toast("Upload complete.");
   } finally {
     $("#uploadButton").disabled = false;
-    $("#uploadButton").textContent = "上传并建立索引";
+    $("#uploadButton").textContent = "Upload and Index";
   }
+}
+
+async function deleteImage(imageId) {
+  const confirmed = window.confirm("Delete this image from the gallery?");
+  if (!confirmed) {
+    return;
+  }
+  await api(`/api/images/${imageId}`, { method: "DELETE" });
+  await refreshHealth();
+  if (state.currentView === "galleryView") {
+    await loadGallery();
+  }
+  toast("Image deleted.");
 }
 
 async function loadHistory() {
@@ -251,7 +315,7 @@ async function loadHistory() {
         </div>
       </article>
     `).join("")
-    : `<p class="muted">还没有检索历史。</p>`;
+    : `<p class="muted">No search history yet.</p>`;
 }
 
 async function loadInvites() {
@@ -263,10 +327,10 @@ async function loadInvites() {
           <strong>${escapeHtml(invite.code)}</strong>
           <span class="muted">${invite.used_count}/${invite.max_uses}</span>
         </header>
-        <p class="muted">${escapeHtml(invite.label || "无备注")} ${invite.expires_at ? "· expires " + escapeHtml(invite.expires_at) : ""}</p>
+        <p class="muted">${escapeHtml(invite.label || "no label")} ${invite.expires_at ? "· expires " + escapeHtml(invite.expires_at) : ""}</p>
       </article>
     `).join("")
-    : `<p class="muted">暂无邀请码。</p>`;
+    : `<p class="muted">No invite codes yet.</p>`;
 }
 
 async function createInvite() {
@@ -279,13 +343,13 @@ async function createInvite() {
       expires_days: expires ? Number(expires) : null,
     }),
   });
-  toast("邀请码已生成");
+  toast("Invite created.");
   await loadInvites();
 }
 
 async function reindex() {
   $("#reindexButton").disabled = true;
-  $("#reindexReport").textContent = "正在重建索引...";
+  $("#reindexReport").textContent = "Rebuilding embeddings...";
   try {
     const data = await api("/api/admin/reindex", { method: "POST", body: JSON.stringify({}) });
     $("#reindexReport").textContent = `${data.backend} · ${data.count} images · ${data.latency_ms} ms`;
@@ -297,12 +361,15 @@ async function reindex() {
 
 async function uploadVideo() {
   const file = $("#videoFile").files[0];
-  if (!file) return toast("请选择视频文件");
+  if (!file) {
+    toast("Please select a video file.");
+    return;
+  }
   const form = new FormData();
   form.append("file", file);
   form.append("dataset", $("#videoDataset").value || "video-demo");
   await api("/api/videos/upload", { method: "POST", body: form });
-  toast("视频已进入预留队列");
+  toast("Video queued.");
   await loadVideos();
 }
 
@@ -318,7 +385,7 @@ async function loadVideos() {
         <p class="muted">${escapeHtml(video.message || "")}</p>
       </article>
     `).join("")
-    : `<p class="muted">暂无视频任务。</p>`;
+    : `<p class="muted">No queued videos yet.</p>`;
 }
 
 function bindEvents() {
@@ -369,16 +436,23 @@ function bindEvents() {
     button.addEventListener("click", () => showView(button.dataset.view));
   });
 
+  $$(".search-target-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.searchTargetType = button.dataset.targetType;
+      updateSearchTargetUI();
+    });
+  });
+
   $("#runTextSearch").addEventListener("click", () => runTextSearch().catch((err) => toast(err.message)));
   $("#runAttributeSearch").addEventListener("click", () => runAttributeSearch().catch((err) => toast(err.message)));
   $("#runImageSearch").addEventListener("click", () => runImageSearch().catch((err) => toast(err.message)));
   $("#clearResults").addEventListener("click", () => {
     $("#resultsGrid").innerHTML = "";
-    $("#searchMeta").textContent = "等待检索任务。";
+    $("#searchMeta").textContent = "Waiting for a retrieval task.";
   });
 
   $("#queryImage").addEventListener("change", (event) => {
-    $("#queryImageName").textContent = event.target.files[0]?.name || "未选择文件";
+    $("#queryImageName").textContent = event.target.files[0]?.name || "No file selected";
   });
   $("#uploadFiles").addEventListener("change", (event) => {
     $("#uploadFolderCount").textContent = `${event.target.files.length} files`;
@@ -387,13 +461,15 @@ function bindEvents() {
     $("#uploadFileCount").textContent = `${event.target.files.length} files`;
   });
   $("#videoFile").addEventListener("change", (event) => {
-    $("#videoFileName").textContent = event.target.files[0]?.name || "未选择文件";
+    $("#videoFileName").textContent = event.target.files[0]?.name || "No file selected";
   });
 
   $("#uploadButton").addEventListener("click", () => uploadImages().catch((err) => toast(err.message)));
   $("#refreshGallery").addEventListener("click", () => loadGallery().catch((err) => toast(err.message)));
   $("#gallerySearch").addEventListener("keydown", (event) => {
-    if (event.key === "Enter") loadGallery().catch((err) => toast(err.message));
+    if (event.key === "Enter") {
+      loadGallery().catch((err) => toast(err.message));
+    }
   });
   $("#datasetFilter").addEventListener("change", () => loadGallery().catch((err) => toast(err.message)));
   $("#refreshHistory").addEventListener("click", () => loadHistory().catch((err) => toast(err.message)));
@@ -402,10 +478,17 @@ function bindEvents() {
   $("#uploadVideoButton").addEventListener("click", () => uploadVideo().catch((err) => toast(err.message)));
 
   document.body.addEventListener("click", (event) => {
-    const button = event.target.closest(".image-id-search");
-    if (button) runImageIdSearch(button.dataset.imageId).catch((err) => toast(err.message));
+    const searchButton = event.target.closest(".image-id-search");
+    if (searchButton) {
+      runImageIdSearch(searchButton.dataset.imageId).catch((err) => toast(err.message));
+    }
+    const deleteButton = event.target.closest(".image-delete");
+    if (deleteButton) {
+      deleteImage(deleteButton.dataset.imageId).catch((err) => toast(err.message));
+    }
   });
 }
 
 bindEvents();
+updateSearchTargetUI();
 checkSession();

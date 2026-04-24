@@ -59,6 +59,25 @@ class Settings:
     invite_bootstrap_codes: tuple[str, ...] = tuple(_list_env("INVITE_BOOTSTRAP_CODES"))
     retriever_backend: str = os.getenv("RETRIEVER_BACKEND", "feature").strip().lower()
     clip_model_name: str = os.getenv("CLIP_MODEL_NAME", "openai/clip-vit-base-patch32")
+    person_retriever_backend: str = os.getenv(
+        "PERSON_RETRIEVER_BACKEND",
+        os.getenv("RETRIEVER_BACKEND", "grain"),
+    ).strip().lower()
+    general_retriever_backend: str = os.getenv(
+        "GENERAL_RETRIEVER_BACKEND",
+        "openclip",
+    ).strip().lower()
+    grain_config_file: str = os.getenv("GRAIN_CONFIG_FILE", "").strip()
+    grain_checkpoint: str = os.getenv("GRAIN_CHECKPOINT", "").strip()
+    general_openclip_model: str = os.getenv(
+        "GENERAL_OPENCLIP_MODEL",
+        "ViT-B-16",
+    ).strip()
+    general_openclip_pretrained: str = os.getenv(
+        "GENERAL_OPENCLIP_PRETRAINED",
+        "laion2b_s34b_b88k",
+    ).strip()
+    allow_retriever_fallback: bool = _bool_env("ALLOW_RETRIEVER_FALLBACK", True)
     max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "25"))
     search_default_top_k: int = int(os.getenv("SEARCH_DEFAULT_TOP_K", "24"))
     search_max_top_k: int = int(os.getenv("SEARCH_MAX_TOP_K", "100"))

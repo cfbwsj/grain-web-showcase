@@ -321,6 +321,40 @@ label {
   align-items: stretch;
 }
 
+.search-mode-strip {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.mode-toggle {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(460px, 100%);
+}
+
+.mode-button {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: #3a4249;
+  font-weight: 800;
+}
+
+.mode-button.active {
+  border-color: var(--teal);
+  background: #e8f2f0;
+  color: var(--teal-dark);
+}
+
+.mode-button:disabled,
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .admin-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -451,6 +485,12 @@ label {
   padding: 10px;
 }
 
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .image-info strong {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -496,8 +536,13 @@ label {
 
 .upload-form .dropzone,
 .upload-form button,
-.upload-form .check-row {
+.upload-form .check-row,
+.upload-form .upload-tip {
   grid-column: 1 / -1;
+}
+
+.upload-tip {
+  margin: 0;
 }
 
 .report,
@@ -580,4 +625,3 @@ label {
     grid-template-columns: 1fr;
   }
 }
-

@@ -6,7 +6,6 @@
 
 - 登录、注册、邀请码注册和超级管理员账号。
 - 批量上传图片集，支持目录上传，并从上级目录或文件名推断 `person_key`。
-- 新图片入库后自动建立检索向量。
 - 文本检索图片，中文查询会在后端做轻量英文归一化。
 - 属性表单检索，后端将属性组合成英文描述后检索。
 - 以图搜图，支持返回命中行人的全部照片。
@@ -14,6 +13,10 @@
 - 图库页面展示当前支持检索的图片数据。
 - 检索历史记录。
 - 视频上传和视频检索预留 API。
+- 普通用户仅能看到和检索自己的上传；管理员可查看全部图库。
+- 图库支持删除图片；普通用户只能删除自己的图片。
+- 双分支检索：`person` 分支优先走 GRAIN，`general` 分支优先走 OpenCLIP。
+- 上传阶段不再强制计算 embedding，首次检索或重建索引时再懒加载缓存。
 
 ## 项目结构
 
@@ -75,29 +78,31 @@ RETRIEVER_BACKEND=feature
 
 ## 检索后端
 
-默认 `RETRIEVER_BACKEND=feature`，只依赖 Pillow/Numpy。它适合展示、快速部署和资源有限的实例，主要利用颜色直方图、文件名、标签和行人 ID 进行检索。
+当前版本使用双分支后端：
 
-如果 Render 实例内存足够，可以安装可选依赖并开启 CLIP：
+- `PERSON_RETRIEVER_BACKEND=grain`
+- `GENERAL_RETRIEVER_BACKEND=openclip`
 
 ```text
 Build Command: pip install -r requirements.txt -r requirements-clip.txt
-RETRIEVER_BACKEND=clip
-CLIP_MODEL_NAME=openai/clip-vit-base-patch32
+PERSON_RETRIEVER_BACKEND=grain
+GENERAL_RETRIEVER_BACKEND=openclip
+GENERAL_OPENCLIP_MODEL=ViT-B-16
+GENERAL_OPENCLIP_PRETRAINED=laion2b_s34b_b88k
+GRAIN_CONFIG_FILE=/absolute/path/to/configs.yaml
+GRAIN_CHECKPOINT=/absolute/path/to/best_map.pth
 ```
 
-切换后端后，在管理员页面点击“重建图片索引”。
+如果 `GRAIN_CONFIG_FILE` 或 `GRAIN_CHECKPOINT` 未提供，系统会按 `ALLOW_RETRIEVER_FALLBACK=true` 自动回退到轻量特征检索，不会阻塞服务启动。
 
-## 接入 GRAIN checkpoint
+## GRAIN 权重说明
 
-当前目录没有可部署的 GRAIN checkpoint，所以系统先以内置检索后端上线。后续可在 `app/retrievers.py` 新增 `GrainRetriever`：
+当前仓库里没有现成的 `.pth` checkpoint 文件，所以 Render 部署时需要你自己提供：
 
-1. 读取原项目的 config 和 checkpoint。
-2. 调用 `build_model(args)` 并加载权重。
-3. 对上传图片执行同训练一致的 transforms。
-4. 对文本执行 GRAIN tokenizer。
-5. 在 `encode_image` / `encode_text` 返回归一化向量。
+1. `configs.yaml`
+2. 对应的 `best_map.pth` 或其它推理 checkpoint
 
-这样前端和数据库层不需要改动，只需要新增后端并设置 `RETRIEVER_BACKEND=grain`。
+如果暂时没有提供，系统会自动回退，不影响页面上线。
 
 ## API 摘要
 

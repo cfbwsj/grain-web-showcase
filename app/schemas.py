@@ -3,6 +3,12 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class SearchOptions(BaseModel):
+    top_k: int = Field(default=24, ge=1, le=100)
+    group_by_person: bool = True
+    target_type: str = Field(default="person")
+
+
 class LoginIn(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=1)
@@ -22,19 +28,13 @@ class InviteCreateIn(BaseModel):
     expires_days: int | None = Field(default=None, ge=1, le=3650)
 
 
-class TextSearchIn(BaseModel):
+class TextSearchIn(SearchOptions):
     text: str = Field(min_length=1)
-    top_k: int = Field(default=24, ge=1, le=100)
-    group_by_person: bool = True
 
 
-class AttributeSearchIn(BaseModel):
+class AttributeSearchIn(SearchOptions):
     attributes: dict[str, str | None]
-    top_k: int = Field(default=24, ge=1, le=100)
-    group_by_person: bool = True
 
 
-class ImageIdSearchIn(BaseModel):
+class ImageIdSearchIn(SearchOptions):
     image_id: int
-    top_k: int = Field(default=24, ge=1, le=100)
-    group_by_person: bool = True

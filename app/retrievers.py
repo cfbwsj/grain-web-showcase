@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -25,8 +27,16 @@ COLOR_PROTOTYPES: list[tuple[str, tuple[int, int, int]]] = [
     ("purple", (129, 78, 182)),
 ]
 
-COLOR_WORDS = {name for name, _ in COLOR_PROTOTYPES}
 TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
+PERSON_TARGET = "person"
+GENERAL_TARGET = "general"
+
+
+def normalize_target_type(target_type: str | None) -> str:
+    value = (target_type or PERSON_TARGET).strip().lower()
+    if value in {"general", "object", "objects", "non-person", "non_person", "scene"}:
+        return GENERAL_TARGET
+    return PERSON_TARGET
 
 
 def normalize_vector(vector: np.ndarray) -> np.ndarray:
@@ -72,12 +82,10 @@ class BaseRetriever:
 
 
 class FeatureRetriever(BaseRetriever):
-    """Small dependency-free retriever for demos and constrained Render instances."""
-
-    name = "feature"
     semantic_text = False
 
-    def __init__(self) -> None:
+    def __init__(self, backend_name: str = "feature") -> None:
+        self.name = backend_name
         self._colors = np.asarray([rgb for _, rgb in COLOR_PROTOTYPES], dtype="float32") / 255.0
 
     def encode_image(self, image: Image.Image) -> np.ndarray:
@@ -101,36 +109,100 @@ class FeatureRetriever(BaseRetriever):
         return normalize_vector(vector)
 
 
-class ClipRetriever(BaseRetriever):
-    name = "clip"
+class OpenClipRetriever(BaseRetriever):
+    name = "openclip"
     semantic_text = True
 
     def __init__(self) -> None:
+        import open_clip
         import torch
-        from transformers import CLIPModel, CLIPProcessor
 
+        self.open_clip = open_clip
         self.torch = torch
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = CLIPModel.from_pretrained(settings.clip_model_name).to(self.device)
+        self.model, _, self.preprocess = open_clip.create_model_and_transforms(
+            settings.general_openclip_model,
+            pretrained=settings.general_openclip_pretrained,
+            device=self.device,
+        )
+        self.tokenizer = open_clip.get_tokenizer(settings.general_openclip_model)
         self.model.eval()
-        self.processor = CLIPProcessor.from_pretrained(settings.clip_model_name)
 
     def _finalize(self, tensor: Any) -> np.ndarray:
         vector = tensor.detach().cpu().float().numpy()[0]
         return normalize_vector(vector)
 
     def encode_image(self, image: Image.Image) -> np.ndarray:
-        inputs = self.processor(images=image.convert("RGB"), return_tensors="pt")
-        inputs = {key: value.to(self.device) for key, value in inputs.items()}
+        tensor = self.preprocess(image.convert("RGB")).unsqueeze(0).to(self.device)
         with self.torch.no_grad():
-            features = self.model.get_image_features(**inputs)
+            features = self.model.encode_image(tensor)
         return self._finalize(features)
 
     def encode_text(self, text: str) -> np.ndarray:
-        inputs = self.processor(text=[text], padding=True, truncation=True, return_tensors="pt")
-        inputs = {key: value.to(self.device) for key, value in inputs.items()}
+        tokens = self.tokenizer([text]).to(self.device)
         with self.torch.no_grad():
-            features = self.model.get_text_features(**inputs)
+            features = self.model.encode_text(tokens)
+        return self._finalize(features)
+
+
+class GrainRetriever(BaseRetriever):
+    name = "grain"
+    semantic_text = True
+
+    def __init__(self) -> None:
+        import torch
+
+        config_path = Path(settings.grain_config_file).expanduser()
+        checkpoint_path = Path(settings.grain_checkpoint).expanduser()
+        if not config_path.is_file():
+            raise FileNotFoundError(f"GRAIN_CONFIG_FILE not found: {config_path}")
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(f"GRAIN_CHECKPOINT not found: {checkpoint_path}")
+
+        repo_root = settings.base_dir.parent.resolve()
+        if str(repo_root) not in sys.path:
+            sys.path.insert(0, str(repo_root))
+
+        from datasets.bases import tokenize
+        from datasets.build import build_transforms
+        from model import build_model
+        from utils.checkpoint import Checkpointer
+        from utils.iotools import load_train_configs
+        from utils.simple_tokenizer import SimpleTokenizer
+
+        self.torch = torch
+        self.tokenize = tokenize
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.args = load_train_configs(str(config_path))
+        self.args.training = False
+        self.model = build_model(self.args)
+        checkpointer = Checkpointer(self.model)
+        checkpointer.load(str(checkpoint_path))
+        self.model.to(self.device)
+        self.model.eval()
+        self.transform = build_transforms(img_size=tuple(self.args.img_size), is_train=False)
+        self.tokenizer = SimpleTokenizer()
+        self.text_length = getattr(self.args, "text_length", 77)
+
+    def _finalize(self, tensor: Any) -> np.ndarray:
+        vector = tensor.detach().cpu().float().numpy()[0]
+        return normalize_vector(vector)
+
+    def encode_image(self, image: Image.Image) -> np.ndarray:
+        tensor = self.transform(image.convert("RGB")).unsqueeze(0).to(self.device)
+        with self.torch.no_grad():
+            features = self.model.encode_image(tensor)
+        return self._finalize(features)
+
+    def encode_text(self, text: str) -> np.ndarray:
+        tokens = self.tokenize(
+            text,
+            tokenizer=self.tokenizer,
+            text_length=self.text_length,
+            truncate=True,
+        ).unsqueeze(0).to(self.device)
+        with self.torch.no_grad():
+            features = self.model.encode_text(tokens)
         return self._finalize(features)
 
 
@@ -153,14 +225,30 @@ def metadata_similarity(query: str, image_record: dict[str, Any]) -> float:
     return min(1.0, overlap / max(len(query_tokens), 1))
 
 
-@lru_cache(maxsize=1)
-def get_retriever() -> BaseRetriever:
-    backend = settings.retriever_backend
-    if backend in {"clip", "auto"}:
-        try:
-            return ClipRetriever()
-        except Exception:
-            if backend == "clip":
-                raise
-    return FeatureRetriever()
+def _build_backend(backend: str, target_type: str) -> BaseRetriever:
+    backend = (backend or "feature").strip().lower()
+    if backend == "grain":
+        return GrainRetriever()
+    if backend in {"openclip", "open_clip", "clip"}:
+        return OpenClipRetriever()
+    return FeatureRetriever(backend_name=f"feature-{target_type}")
 
+
+def _fallback_name(target_type: str) -> str:
+    return f"feature-{target_type}-fallback"
+
+
+@lru_cache(maxsize=4)
+def get_retriever(target_type: str = PERSON_TARGET) -> BaseRetriever:
+    target_type = normalize_target_type(target_type)
+    backend = (
+        settings.general_retriever_backend
+        if target_type == GENERAL_TARGET
+        else settings.person_retriever_backend
+    )
+    try:
+        return _build_backend(backend, target_type)
+    except Exception:
+        if not settings.allow_retriever_fallback:
+            raise
+        return FeatureRetriever(backend_name=_fallback_name(target_type))

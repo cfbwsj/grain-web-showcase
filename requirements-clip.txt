@@ -1,4 +1,9 @@
-# Optional semantic retriever. Use on Render only when the instance has enough RAM.
+# Optional heavy retrieval stack for person/general dual-branch search.
 torch>=2.1
-transformers>=4.40
-
+torchvision>=0.16
+PyYAML>=6.0
+prettytable>=3.9
+ftfy>=6.1
+regex>=2023.10.3
+tqdm>=4.66
+open_clip_torch>=2.24

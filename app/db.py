@@ -102,6 +102,15 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_history_user_created
                 ON search_history(user_id, created_at);
 
+            CREATE TABLE IF NOT EXISTS image_embeddings (
+                image_id INTEGER NOT NULL,
+                backend TEXT NOT NULL,
+                embedding_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (image_id, backend),
+                FOREIGN KEY(image_id) REFERENCES images(id) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS videos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 original_filename TEXT NOT NULL,
@@ -120,4 +129,3 @@ def init_db() -> None:
 
 def ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-

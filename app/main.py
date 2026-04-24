@@ -17,7 +17,7 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Respon
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from PIL import Image, UnidentifiedImageError
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .attributes import compose_attribute_prompt
 from .config import settings
@@ -39,6 +39,10 @@ MEDIA_DIR = settings.upload_dir
 IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
 VIDEO_MIME_PREFIXES = ("video/",)
 SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
+PERSON_TARGET = "person"
+GENERAL_TARGET = "general"
+FAST_UPLOAD_MAX_SIDE = 1920
+THUMBNAIL_MAX_SIDE = 480
 
 settings.upload_dir.mkdir(parents=True, exist_ok=True)
 settings.video_dir.mkdir(parents=True, exist_ok=True)
@@ -66,7 +70,13 @@ def media_url(stored_path: str) -> str:
     return f"/media/{normalized}"
 
 
-def image_payload(row: dict[str, Any], score: float | None = None, rank: int | None = None) -> dict[str, Any]:
+def image_payload(
+    row: dict[str, Any],
+    score: float | None = None,
+    rank: int | None = None,
+    *,
+    user: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     payload = {
         "id": row["id"],
         "rank": rank,
@@ -82,6 +92,7 @@ def image_payload(row: dict[str, Any], score: float | None = None, rank: int | N
         "title": row["title"],
         "tags": row["tags"],
         "created_at": row["created_at"],
+        "can_delete": False if user is None else can_manage_image(user, row),
     }
     return payload
 
@@ -171,20 +182,24 @@ def ensure_super_admin() -> None:
 def startup() -> None:
     init_db()
     ensure_super_admin()
-    get_retriever()
+    get_retriever(PERSON_TARGET)
+    get_retriever(GENERAL_TARGET)
 
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
-    retriever = get_retriever()
+    person_retriever = get_retriever(PERSON_TARGET)
+    general_retriever = get_retriever(GENERAL_TARGET)
     with connect() as conn:
         image_count = conn.execute("SELECT COUNT(*) AS count FROM images").fetchone()["count"]
         user_count = conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
     return {
         "ok": True,
         "app": settings.app_name,
-        "backend": retriever.name,
-        "semantic_text": retriever.semantic_text,
+        "backend": person_retriever.name,
+        "person_backend": person_retriever.name,
+        "general_backend": general_retriever.name,
+        "semantic_text": person_retriever.semantic_text or general_retriever.semantic_text,
         "data_dir": str(settings.data_dir),
         "image_count": image_count,
         "user_count": user_count,
@@ -261,6 +276,32 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def is_admin(user: dict[str, Any]) -> bool:
+    return user.get("role") == "admin"
+
+
+def normalize_target_type(target_type: str | None, default: str = PERSON_TARGET) -> str:
+    value = (target_type or default).strip().lower()
+    if value in {"general", "object", "objects", "non-person", "non_person", "scene"}:
+        return GENERAL_TARGET
+    return PERSON_TARGET
+
+
+def should_group_by_person(target_type: str | None, requested: bool) -> bool:
+    return normalize_target_type(target_type) == PERSON_TARGET and requested
+
+
+def visibility_filters(user: dict[str, Any], alias: str = "") -> tuple[list[str], list[Any]]:
+    if is_admin(user):
+        return [], []
+    prefix = f"{alias}." if alias else ""
+    return [f"{prefix}uploaded_by = ?"], [user["id"]]
+
+
+def can_manage_image(user: dict[str, Any], row: dict[str, Any]) -> bool:
+    return is_admin(user) or row.get("uploaded_by") == user["id"]
+
+
 @app.get("/api/admin/invites")
 def list_invites(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     with connect() as conn:
@@ -316,6 +357,13 @@ def open_image_from_upload(upload: UploadFile, data: bytes) -> Image.Image:
     return image
 
 
+def prepare_uploaded_image(image: Image.Image) -> Image.Image:
+    prepared = ImageOps.exif_transpose(image).convert("RGB")
+    if max(prepared.size) > FAST_UPLOAD_MAX_SIDE:
+        prepared.thumbnail((FAST_UPLOAD_MAX_SIDE, FAST_UPLOAD_MAX_SIDE))
+    return prepared
+
+
 def save_image_record(
     upload: UploadFile,
     image: Image.Image,
@@ -335,14 +383,12 @@ def save_image_record(
     original_path.parent.mkdir(parents=True, exist_ok=True)
     thumb_path.parent.mkdir(parents=True, exist_ok=True)
 
-    rgb = image.convert("RGB")
-    rgb.save(original_path, "JPEG", quality=92, optimize=True)
+    rgb = prepare_uploaded_image(image)
+    rgb.save(original_path, "JPEG", quality=88)
     thumb = rgb.copy()
-    thumb.thumbnail((640, 640))
-    thumb.save(thumb_path, "JPEG", quality=86, optimize=True)
+    thumb.thumbnail((THUMBNAIL_MAX_SIDE, THUMBNAIL_MAX_SIDE))
+    thumb.save(thumb_path, "JPEG", quality=80)
 
-    retriever = get_retriever()
-    embedding = retriever.encode_image(rgb)
     with connect() as conn:
         cursor = conn.execute(
             """
@@ -365,8 +411,8 @@ def save_image_record(
                 clean_label(title, ""),
                 clean_label(tags, ""),
                 json.dumps({"source_filename": upload.filename}, ensure_ascii=False),
-                encode_json(embedding),
-                retriever.name,
+                None,
+                None,
                 user_id,
                 now,
             ),
@@ -397,7 +443,7 @@ async def upload_images(
             image = open_image_from_upload(upload, data)
             resolved_person = infer_person_key(upload.filename or "", person_key) if infer_person else person_key
             row = save_image_record(upload, image, dataset, resolved_person, title, tags, user["id"])
-            uploaded.append(image_payload(row))
+            uploaded.append(image_payload(row, user=user))
         except HTTPException as exc:
             errors.append(str(exc.detail))
     return {"uploaded": uploaded, "errors": errors, "count": len(uploaded)}
@@ -410,7 +456,7 @@ def list_images(
     person_key: str = "",
     page: int = 1,
     page_size: int = 48,
-    _: dict[str, Any] = Depends(require_user),
+    user: dict[str, Any] = Depends(require_user),
 ) -> dict[str, Any]:
     page = max(page, 1)
     page_size = min(max(page_size, 1), 200)
@@ -428,6 +474,9 @@ def list_images(
     if person_key.strip():
         clauses.append("person_key = ?")
         params.append(person_key.strip())
+    scope_clauses, scope_params = visibility_filters(user)
+    clauses.extend(scope_clauses)
+    params.extend(scope_params)
     where = "WHERE " + " AND ".join(clauses) if clauses else ""
     with connect() as conn:
         total = conn.execute(f"SELECT COUNT(*) AS count FROM images {where}", params).fetchone()["count"]
@@ -435,53 +484,91 @@ def list_images(
             f"SELECT * FROM images {where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
             [*params, page_size, (page - 1) * page_size],
         ).fetchall()
+        dataset_where = "WHERE " + " AND ".join(scope_clauses) if scope_clauses else ""
         datasets = [
             row["dataset"]
             for row in conn.execute(
-                "SELECT DISTINCT dataset FROM images WHERE dataset IS NOT NULL AND dataset != '' ORDER BY dataset"
+                f"""
+                SELECT DISTINCT dataset FROM images
+                {dataset_where}
+                {('AND' if dataset_where else 'WHERE')} dataset IS NOT NULL AND dataset != ''
+                ORDER BY dataset
+                """,
+                scope_params,
             ).fetchall()
         ]
     return {
-        "images": [image_payload(row_to_dict(row) or {}) for row in rows],
+        "images": [image_payload(row_to_dict(row) or {}, user=user) for row in rows],
         "total": total,
         "page": page,
         "page_size": page_size,
         "datasets": datasets,
+        "visibility_scope": "all" if is_admin(user) else "own",
     }
 
 
 @app.get("/api/images/{image_id}")
-def get_image(image_id: int, _: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
-    row = fetch_image(image_id)
+def get_image(image_id: int, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    row = fetch_image(image_id, user)
     if row is None:
         raise HTTPException(status_code=404, detail="Image not found")
-    return {"image": image_payload(row)}
+    return {"image": image_payload(row, user=user)}
 
 
-def fetch_image(image_id: int) -> dict[str, Any] | None:
+def fetch_image(image_id: int, user: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    clauses = ["id = ?"]
+    params: list[Any] = [image_id]
+    if user is not None:
+        scope_clauses, scope_params = visibility_filters(user)
+        clauses.extend(scope_clauses)
+        params.extend(scope_params)
+    where = " AND ".join(clauses)
     with connect() as conn:
-        row = conn.execute("SELECT * FROM images WHERE id = ?", (image_id,)).fetchone()
+        row = conn.execute(f"SELECT * FROM images WHERE {where}", params).fetchone()
     return row_to_dict(row)
 
 
-def all_image_rows() -> list[dict[str, Any]]:
+def all_image_rows(user: dict[str, Any]) -> list[dict[str, Any]]:
+    clauses, params = visibility_filters(user)
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM images ORDER BY id ASC").fetchall()
+        rows = conn.execute(f"SELECT * FROM images {where} ORDER BY id ASC", params).fetchall()
     return [row_to_dict(row) or {} for row in rows]
 
 
 def update_embedding(image_id: int, vector: np.ndarray, backend: str) -> None:
     with connect() as conn:
         conn.execute(
-            "UPDATE images SET embedding_json = ?, embedding_backend = ? WHERE id = ?",
-            (encode_json(vector), backend, image_id),
+            """
+            INSERT INTO image_embeddings (image_id, backend, embedding_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(image_id, backend) DO UPDATE SET
+                embedding_json = excluded.embedding_json,
+                updated_at = excluded.updated_at
+            """,
+            (image_id, backend, encode_json(vector), utc_now()),
         )
 
 
-def embedding_for_row(row: dict[str, Any]) -> np.ndarray:
-    retriever = get_retriever()
-    vector = decode_json(row.get("embedding_json"))
-    if vector is not None and row.get("embedding_backend") == retriever.name:
+def load_cached_embedding(image_id: int, backend: str) -> np.ndarray | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT embedding_json FROM image_embeddings WHERE image_id = ? AND backend = ?",
+            (image_id, backend),
+        ).fetchone()
+    if row is not None:
+        return decode_json(row["embedding_json"])
+    return None
+
+
+def embedding_for_row(row: dict[str, Any], target_type: str) -> np.ndarray:
+    retriever = get_retriever(target_type)
+    vector = load_cached_embedding(row["id"], retriever.name)
+    if vector is None:
+        legacy_vector = decode_json(row.get("embedding_json"))
+        if legacy_vector is not None and row.get("embedding_backend") == retriever.name:
+            vector = legacy_vector
+    if vector is not None:
         return vector
     image_path = settings.upload_dir / row["stored_path"]
     with Image.open(image_path) as image:
@@ -494,20 +581,26 @@ def embedding_for_row(row: dict[str, Any]) -> np.ndarray:
 def score_rows(
     query_vector: np.ndarray,
     *,
+    rows: list[dict[str, Any]],
     query_text: str = "",
     top_k: int,
+    target_type: str,
     group_by_person: bool,
 ) -> tuple[list[dict[str, Any]], str | None]:
-    retriever = get_retriever()
+    retriever = get_retriever(target_type)
     scored: list[tuple[float, dict[str, Any]]] = []
-    for row in all_image_rows():
-        image_vector = embedding_for_row(row)
+    target_type = normalize_target_type(target_type)
+    group_by_person = should_group_by_person(target_type, group_by_person)
+    for row in rows:
+        image_vector = embedding_for_row(row, target_type)
         visual = cosine_similarity(query_vector, image_vector)
         if retriever.name == "clip":
             visual = (visual + 1.0) / 2.0
         meta = metadata_similarity(query_text, row) if query_text else 0.0
         if query_text and np.linalg.norm(query_vector) <= 1e-8:
             score = meta
+        elif target_type == GENERAL_TARGET:
+            score = (0.62 * visual) + (0.38 * meta if query_text else 0.0)
         else:
             score = (0.88 * visual) + (0.12 * meta if query_text else 0.0)
         scored.append((float(max(0.0, min(1.0, score))), row))
@@ -522,7 +615,26 @@ def score_rows(
             selected = [(score, row) for score, row in scored if row.get("person_key") == matched_person]
             selected = selected[: max(top_k, len(selected))]
 
-    return [image_payload(row, score=score, rank=index + 1) for index, (score, row) in enumerate(selected)], matched_person
+    return [row_to_dict_result(row, score, index) for index, (score, row) in enumerate(selected)], matched_person
+
+
+def row_to_dict_result(row: dict[str, Any], score: float, index: int) -> dict[str, Any]:
+    return image_payload(row, score=score, rank=index + 1)
+
+
+def materialize_search_results(
+    raw_results: list[dict[str, Any]],
+    user: dict[str, Any],
+) -> list[dict[str, Any]]:
+    materialized: list[dict[str, Any]] = []
+    for item in raw_results:
+        row = fetch_image(item["id"], user)
+        if row is None:
+            continue
+        materialized.append(
+            image_payload(row, score=item["score"], rank=item["rank"], user=user)
+        )
+    return materialized
 
 
 def record_history(
@@ -573,17 +685,23 @@ def run_text_search(
     query: str,
     top_k: int,
     group_by_person: bool,
+    target_type: str,
 ) -> dict[str, Any]:
     start = time.perf_counter()
+    target_type = normalize_target_type(target_type)
     normalized, provider = normalize_for_retrieval(query)
-    retriever = get_retriever()
+    retriever = get_retriever(target_type)
     query_vector = retriever.encode_text(normalized)
+    rows = all_image_rows(user)
     results, matched_person = score_rows(
         query_vector,
+        rows=rows,
         query_text=f"{query} {normalized}",
         top_k=min(top_k, settings.search_max_top_k),
+        target_type=target_type,
         group_by_person=group_by_person,
     )
+    results = materialize_search_results(results, user)
     latency_ms = int((time.perf_counter() - start) * 1000)
     record_history(user["id"], mode, query, normalized, latency_ms, retriever.name, results)
     return {
@@ -595,13 +713,22 @@ def run_text_search(
         "semantic_text": retriever.semantic_text,
         "latency_ms": latency_ms,
         "matched_person_key": matched_person,
+        "target_type": target_type,
+        "grouped_by_person": should_group_by_person(target_type, group_by_person),
         "results": results,
     }
 
 
 @app.post("/api/search/text")
 def search_text(payload: TextSearchIn, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
-    return run_text_search(user, "text", payload.text, payload.top_k, payload.group_by_person)
+    return run_text_search(
+        user,
+        "text",
+        payload.text,
+        payload.top_k,
+        payload.group_by_person,
+        payload.target_type,
+    )
 
 
 @app.post("/api/search/attributes")
@@ -609,7 +736,7 @@ def search_attributes(
     payload: AttributeSearchIn, user: dict[str, Any] = Depends(require_user)
 ) -> dict[str, Any]:
     prompt = compose_attribute_prompt(payload.attributes)
-    result = run_text_search(user, "attributes", prompt, payload.top_k, payload.group_by_person)
+    result = run_text_search(user, "attributes", prompt, payload.top_k, payload.group_by_person, PERSON_TARGET)
     result["attributes"] = payload.attributes
     return result
 
@@ -620,15 +747,21 @@ def run_image_search(
     label: str,
     top_k: int,
     group_by_person: bool,
+    target_type: str,
 ) -> dict[str, Any]:
     start = time.perf_counter()
-    retriever = get_retriever()
+    target_type = normalize_target_type(target_type)
+    retriever = get_retriever(target_type)
     query_vector = retriever.encode_image(image)
+    rows = all_image_rows(user)
     results, matched_person = score_rows(
         query_vector,
+        rows=rows,
         top_k=min(top_k, settings.search_max_top_k),
+        target_type=target_type,
         group_by_person=group_by_person,
     )
+    results = materialize_search_results(results, user)
     latency_ms = int((time.perf_counter() - start) * 1000)
     record_history(user["id"], "image", label, None, latency_ms, retriever.name, results)
     return {
@@ -637,6 +770,8 @@ def run_image_search(
         "backend": retriever.name,
         "latency_ms": latency_ms,
         "matched_person_key": matched_person,
+        "target_type": target_type,
+        "grouped_by_person": should_group_by_person(target_type, group_by_person),
         "results": results,
     }
 
@@ -646,27 +781,54 @@ async def search_image_upload(
     file: UploadFile = File(...),
     top_k: int = Form(24),
     group_by_person: bool = Form(True),
+    target_type: str = Form(PERSON_TARGET),
     user: dict[str, Any] = Depends(require_user),
 ) -> dict[str, Any]:
     data = await file.read(settings.max_upload_mb * 1024 * 1024 + 1)
     image = open_image_from_upload(file, data)
-    return run_image_search(user, image.convert("RGB"), file.filename or "query image", top_k, group_by_person)
+    return run_image_search(
+        user,
+        prepare_uploaded_image(image),
+        file.filename or "query image",
+        top_k,
+        group_by_person,
+        target_type,
+    )
 
 
 @app.post("/api/search/image-id")
 def search_image_id(payload: ImageIdSearchIn, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
-    row = fetch_image(payload.image_id)
+    row = fetch_image(payload.image_id, user)
     if row is None:
         raise HTTPException(status_code=404, detail="Image not found")
     with Image.open(settings.upload_dir / row["stored_path"]) as image:
         image.load()
         return run_image_search(
             user,
-            image.convert("RGB"),
+            prepare_uploaded_image(image),
             row["original_filename"],
             payload.top_k,
             payload.group_by_person,
+            payload.target_type,
         )
+
+
+@app.delete("/api/images/{image_id}")
+def delete_image(image_id: int, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    row = fetch_image(image_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    if not can_manage_image(user, row):
+        raise HTTPException(status_code=403, detail="You can only delete your own uploads")
+    with connect() as conn:
+        conn.execute("DELETE FROM images WHERE id = ?", (image_id,))
+    for relative_path in (row["stored_path"], row["thumbnail_path"]):
+        file_path = settings.upload_dir / relative_path
+        try:
+            file_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+    return {"ok": True, "deleted_image_id": image_id}
 
 
 @app.get("/api/search/history")
@@ -697,19 +859,23 @@ def search_history(
 
 @app.post("/api/admin/reindex")
 def reindex(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
-    retriever = get_retriever()
+    retrievers = {
+        retriever.name: retriever
+        for retriever in (get_retriever(PERSON_TARGET), get_retriever(GENERAL_TARGET))
+    }
     start = time.perf_counter()
     count = 0
-    for row in all_image_rows():
+    for row in all_image_rows({"role": "admin", "id": -1}):
         image_path = settings.upload_dir / row["stored_path"]
         with Image.open(image_path) as image:
             image.load()
-            vector = retriever.encode_image(image)
-        update_embedding(row["id"], vector, retriever.name)
+            for retriever in retrievers.values():
+                vector = retriever.encode_image(image)
+                update_embedding(row["id"], vector, retriever.name)
         count += 1
     return {
         "ok": True,
-        "backend": retriever.name,
+        "backend": ", ".join(retrievers.keys()),
         "count": count,
         "latency_ms": int((time.perf_counter() - start) * 1000),
     }
@@ -751,9 +917,11 @@ async def upload_video_placeholder(
 
 
 @app.get("/api/videos")
-def list_videos(_: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+def list_videos(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    clauses, params = visibility_filters(user)
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
     with connect() as conn:
-        rows = conn.execute("SELECT * FROM videos ORDER BY created_at DESC, id DESC").fetchall()
+        rows = conn.execute(f"SELECT * FROM videos {where} ORDER BY created_at DESC, id DESC", params).fetchall()
     return {"videos": [row_to_dict(row) for row in rows]}
 
 
