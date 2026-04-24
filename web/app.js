@@ -16,6 +16,7 @@ const MODE_LABELS = {
 const TRANSLATION_PROVIDER_LABELS = {
   original: "原始文本",
   "transformers-marian": "本地翻译模型",
+  "local-zh-dictionary-priority": "短词直译",
   "local-zh-dictionary": "本地词典",
   "local-zh-dictionary-fallback": "词典兜底",
   "local-cjk-fallback": "原文回退",
@@ -257,8 +258,8 @@ function renderResults(data, targetType) {
     `分支：${TARGET_LABELS[resolvedTargetType]}`,
     data.grouped_by_person ? "按身份聚合" : "按相似度排序",
     data.matched_person_key ? `命中身份：${data.matched_person_key}` : "",
-    data.translation_provider ? `翻译：${TRANSLATION_PROVIDER_LABELS[data.translation_provider] || data.translation_provider}` : "",
-    data.translated_query && data.translated_query !== data.query ? `归一化：${data.translated_query}` : "",
+    data.translation_provider ? `翻译方式：${TRANSLATION_PROVIDER_LABELS[data.translation_provider] || data.translation_provider}` : "",
+    data.translated_query && data.translated_query !== data.query ? `英文检索词：${data.translated_query}` : "",
   ].filter(Boolean);
 
   meta.textContent = `${metaParts.join(" | ")} | 结果 ${data.results.length} 张`;

@@ -8,6 +8,7 @@ from .config import settings
 
 
 ASCII_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
+CJK_CHAR_RE = re.compile(r"[\u3400-\u9fff]")
 
 ZH_TO_EN = {
     "\u5168\u8eab": "full body",
@@ -141,6 +142,7 @@ ZH_TO_EN = {
     "\u6591\u9a6c": "zebra",
     "\u957f\u9888\u9e7f": "giraffe",
     "\u9a6c": "horse",
+    "\u9a86\u9a7c": "camel",
     "\u725b": "cow",
     "\u7f8a": "sheep",
     "\u732a": "pig",
@@ -152,7 +154,11 @@ ZH_TO_EN = {
 
 
 def contains_cjk(text: str) -> bool:
-    return bool(re.search(r"[\u3400-\u9fff]", text or ""))
+    return bool(CJK_CHAR_RE.search(text or ""))
+
+
+def _count_cjk_chars(text: str) -> int:
+    return len(CJK_CHAR_RE.findall(text or ""))
 
 
 def _ordered_tokens(text: str) -> list[str]:
@@ -235,6 +241,17 @@ def _translate_with_dictionary(text: str) -> str | None:
     return re.sub(r"\s+", " ", prompt)
 
 
+def _should_prefer_dictionary(text: str, dictionary_prompt: str | None) -> bool:
+    if not dictionary_prompt:
+        return False
+    cjk_count = _count_cjk_chars(text)
+    ascii_count = len(ASCII_TOKEN_RE.findall(text or ""))
+    compact_text = re.sub(r"\s+", "", text or "")
+    # Short noun-like Chinese queries are usually translated more reliably by
+    # a direct lexical mapping than by a generative model.
+    return cjk_count > 0 and cjk_count <= 4 and ascii_count == 0 and len(compact_text) <= 4
+
+
 def normalize_for_retrieval(text: str) -> tuple[str, str]:
     """Return an English-oriented retrieval prompt and the provider name."""
     text = (text or "").strip()
@@ -243,19 +260,21 @@ def normalize_for_retrieval(text: str) -> tuple[str, str]:
     if not contains_cjk(text):
         return text, "original"
 
+    dictionary_prompt = _translate_with_dictionary(text)
+    if _should_prefer_dictionary(text, dictionary_prompt):
+        return dictionary_prompt or text, "local-zh-dictionary-priority"
+
     backend = settings.translation_backend
     if backend in {"transformers", "marian", "model", "auto"}:
         try:
             translated = _translate_with_transformers(text)
-            if translated:
+            if translated and not contains_cjk(translated):
                 return translated, "transformers-marian"
         except Exception:
             if backend != "auto":
-                dictionary_prompt = _translate_with_dictionary(text)
                 if dictionary_prompt:
                     return dictionary_prompt, "local-zh-dictionary-fallback"
 
-    dictionary_prompt = _translate_with_dictionary(text)
     if dictionary_prompt:
         return dictionary_prompt, "local-zh-dictionary"
 
