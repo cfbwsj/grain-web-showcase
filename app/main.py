@@ -171,6 +171,7 @@ def ensure_super_admin() -> None:
 def startup() -> None:
     init_db()
     ensure_super_admin()
+    get_retriever()
 
 
 @app.get("/api/health")
