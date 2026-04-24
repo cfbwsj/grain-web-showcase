@@ -1,5 +1,18 @@
 const PERSON_TARGET = "person";
 const GENERAL_TARGET = "general";
+const TARGET_LABELS = {
+  [PERSON_TARGET]: "行人检索",
+  [GENERAL_TARGET]: "通用检索",
+};
+const ROLE_LABELS = {
+  admin: "管理员",
+  user: "普通用户",
+};
+const MODE_LABELS = {
+  text: "文本检索",
+  attributes: "属性检索",
+  image: "图片检索",
+};
 
 const SEARCH_CONFIG = {
   [PERSON_TARGET]: {
@@ -15,7 +28,7 @@ const SEARCH_CONFIG = {
     metaId: "personSearchMeta",
     clearId: "clearPersonResults",
     backendStatusId: "personBackendStatus",
-    emptyMessage: "Waiting for a person retrieval task.",
+    emptyMessage: "等待执行行人检索任务。",
   },
   [GENERAL_TARGET]: {
     viewId: "generalSearchView",
@@ -28,7 +41,7 @@ const SEARCH_CONFIG = {
     metaId: "generalSearchMeta",
     clearId: "clearGeneralResults",
     backendStatusId: "generalBackendStatus",
-    emptyMessage: "Waiting for a general retrieval task.",
+    emptyMessage: "等待执行通用检索任务。",
   },
 };
 
@@ -57,6 +70,33 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#039;");
+}
+
+function localizeErrorMessage(message) {
+  const text = String(message || "").trim();
+  const exactMap = {
+    "Authentication required": "请先登录后再操作。",
+    "Invalid session": "登录状态已失效，请重新登录。",
+    "User not found": "未找到当前用户，请重新登录。",
+    "Admin access required": "需要管理员权限。",
+    "Invalid email or password": "邮箱或密码错误。",
+    "Invitation code is invalid": "邀请码无效。",
+    "Invitation code has been used up": "邀请码已被使用完。",
+    "Invitation code has expired": "邀请码已过期。",
+    "Email is already registered": "该邮箱已被注册。",
+    "Image not found": "未找到图片。",
+    "Unsupported video type": "不支持的视频类型。",
+    "Invitation code already exists": "邀请码已存在。",
+  };
+  if (exactMap[text]) {
+    return exactMap[text];
+  }
+  return text
+    .replace(/^Request failed:\s*/i, "请求失败：")
+    .replace(/\bunsupported image type\b/i, "不支持的图片类型")
+    .replace(/\binvalid image\b/i, "无效图片")
+    .replace(/\bexceeds\b/i, "超过")
+    .replace(/\bImage not found\b/i, "未找到图片");
 }
 
 function targetTypeForView(viewId) {
@@ -99,7 +139,7 @@ async function api(path, options = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.detail || `Request failed: ${response.status}`);
+    throw new Error(localizeErrorMessage(data.detail || `请求失败：${response.status}`));
   }
   return data;
 }
@@ -110,7 +150,8 @@ function setAuthVisible(authed) {
 }
 
 function updateUser() {
-  $("#userEmail").textContent = state.user ? `${state.user.email} | ${state.user.role}` : "-";
+  const roleLabel = ROLE_LABELS[state.user?.role] || state.user?.role || "-";
+  $("#userEmail").textContent = state.user ? `${state.user.email} | ${roleLabel}` : "-";
   $("#adminNav").classList.toggle("hidden", state.user?.role !== "admin");
 }
 
@@ -120,16 +161,16 @@ function formatBackendStatus(label, data, targetType) {
   const fallback = data[`${targetType}_backend_fallback`];
   const semantic = data[`${targetType}_semantic_text`];
   if (fallback) {
-    return `${label}: ${actual} fallback (requested ${requested}, semantic=${semantic ? "yes" : "no"})`;
+    return `${label}：当前 ${actual}，已从 ${requested} 回退，语义文本=${semantic ? "是" : "否"}`;
   }
-  return `${label}: ${actual} (semantic=${semantic ? "yes" : "no"})`;
+  return `${label}：${actual}，语义文本=${semantic ? "是" : "否"}`;
 }
 
 async function refreshHealth() {
   const data = await api("/api/health");
-  const personSummary = formatBackendStatus("person", data, PERSON_TARGET);
-  const generalSummary = formatBackendStatus("general", data, GENERAL_TARGET);
-  $("#healthBadge").textContent = `${personSummary} | ${generalSummary} | ${data.image_count} images`;
+  const personSummary = formatBackendStatus("行人分支", data, PERSON_TARGET);
+  const generalSummary = formatBackendStatus("通用分支", data, GENERAL_TARGET);
+  $("#healthBadge").textContent = `${personSummary} | ${generalSummary} | 当前图片 ${data.image_count} 张`;
   $(`#${SEARCH_CONFIG[PERSON_TARGET].backendStatusId}`).textContent = personSummary;
   $(`#${SEARCH_CONFIG[GENERAL_TARGET].backendStatusId}`).textContent = generalSummary;
 }
@@ -144,13 +185,13 @@ function showView(viewId) {
   $$(".nav-item").forEach((button) => button.classList.toggle("active", button.dataset.view === viewId));
 
   const titles = {
-    personSearchView: ["Person Search", "Pedestrian Retrieval Workbench"],
-    generalSearchView: ["General Search", "General Retrieval Workbench"],
-    galleryView: ["Gallery", "Gallery"],
-    uploadView: ["Upload", "Upload and Index"],
-    historyView: ["History", "Search History"],
-    adminView: ["Admin", "System Admin"],
-    videoView: ["Video", "Video Queue"],
+    personSearchView: ["行人检索", "行人检索工作台"],
+    generalSearchView: ["通用检索", "通用检索工作台"],
+    galleryView: ["图库", "图库"],
+    uploadView: ["上传", "上传与入库"],
+    historyView: ["历史", "搜索历史"],
+    adminView: ["管理", "系统管理"],
+    videoView: ["视频", "视频队列"],
   };
   const [eyebrow, title] = titles[viewId] || titles.personSearchView;
   $("#viewEyebrow").textContent = eyebrow;
@@ -175,14 +216,14 @@ function imageCard(image, options = {}) {
   const searchTargetType = options.targetType || currentSearchTarget();
   const chips = [
     image.dataset ? `<span class="chip">${escapeHtml(image.dataset)}</span>` : "",
-    image.person_key ? `<span class="chip">ID ${escapeHtml(image.person_key)}</span>` : "",
+    image.person_key ? `<span class="chip">身份 ${escapeHtml(image.person_key)}</span>` : "",
     score != null ? `<span class="chip">${score}%</span>` : "",
   ].join("");
   const searchButton = options.searchButton
-    ? `<button class="secondary-button image-id-search" data-image-id="${image.id}" data-target-type="${searchTargetType}" type="button">Search by Image</button>`
+    ? `<button class="secondary-button image-id-search" data-image-id="${image.id}" data-target-type="${searchTargetType}" type="button">以图搜图</button>`
     : "";
   const deleteButton = options.deleteButton && image.can_delete
-    ? `<button class="ghost-button image-delete" data-image-id="${image.id}" type="button">Delete</button>`
+    ? `<button class="ghost-button image-delete" data-image-id="${image.id}" type="button">删除</button>`
     : "";
   const actions = [searchButton, deleteButton].filter(Boolean).join("");
 
@@ -204,26 +245,26 @@ function renderResults(data, targetType) {
   const { grid, meta } = resultElements(resolvedTargetType);
   const metaParts = [
     `${data.latency_ms} ms`,
-    `backend: ${data.backend}`,
-    `target: ${resolvedTargetType}`,
-    data.grouped_by_person ? "grouped by person" : "top similar images",
-    data.matched_person_key ? `matched person: ${data.matched_person_key}` : "",
-    data.translated_query && data.translated_query !== data.query ? `query: ${data.translated_query}` : "",
+    `模型：${data.backend}`,
+    `分支：${TARGET_LABELS[resolvedTargetType]}`,
+    data.grouped_by_person ? "按身份聚合" : "按相似度排序",
+    data.matched_person_key ? `命中身份：${data.matched_person_key}` : "",
+    data.translated_query && data.translated_query !== data.query ? `归一化：${data.translated_query}` : "",
   ].filter(Boolean);
 
-  meta.textContent = `${metaParts.join(" | ")} | ${data.results.length} results`;
+  meta.textContent = `${metaParts.join(" | ")} | 结果 ${data.results.length} 张`;
   grid.innerHTML = data.results.length
     ? data.results
       .map((item) => imageCard(item, { searchButton: true, deleteButton: true, targetType: resolvedTargetType }))
       .join("")
-    : `<p class="muted">No results yet. Upload images first and then retry.</p>`;
+    : `<p class="muted">暂无结果，请先上传图片后再重试。</p>`;
 }
 
 async function runTextSearch(targetType) {
   const config = SEARCH_CONFIG[targetType];
   const text = $(`#${config.textQueryId}`).value.trim();
   if (!text) {
-    toast("Please enter a text query.");
+    toast("请输入检索文本。");
     return;
   }
   const payload = {
@@ -268,7 +309,7 @@ async function runImageSearch(targetType) {
   const config = SEARCH_CONFIG[targetType];
   const file = $(`#${config.imageInputId}`).files[0];
   if (!file) {
-    toast("Please select a query image.");
+    toast("请选择查询图片。");
     return;
   }
   const form = new FormData();
@@ -322,15 +363,15 @@ async function loadGallery() {
     page_size: "72",
   });
   const data = await api(`/api/images?${params}`);
-  $("#galleryCount").textContent = `${data.total} images | ${data.visibility_scope === "all" ? "all uploads" : "my uploads only"}`;
+  $("#galleryCount").textContent = `${data.total} 张图片 | ${data.visibility_scope === "all" ? "可查看全部上传" : "仅查看我的上传"}`;
   $("#galleryGrid").innerHTML = data.images.length
     ? data.images
       .map((item) => imageCard(item, { searchButton: true, deleteButton: true, targetType: currentSearchTarget() }))
       .join("")
-    : `<p class="muted">No visible images in the gallery yet.</p>`;
+    : `<p class="muted">图库中暂时没有可见图片。</p>`;
 
   const currentDataset = $("#datasetFilter").value;
-  $("#datasetFilter").innerHTML = `<option value="">all datasets</option>` + data.datasets
+  $("#datasetFilter").innerHTML = `<option value="">全部数据集</option>` + data.datasets
     .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
     .join("");
   $("#datasetFilter").value = currentDataset;
@@ -341,39 +382,39 @@ async function uploadImages() {
   const flatFiles = Array.from($("#uploadFlatFiles").files);
   const files = [...folderFiles, ...flatFiles];
   if (!files.length) {
-    toast("Please choose images to upload.");
+    toast("请选择要上传的图片。");
     return;
   }
   const form = new FormData();
   files.forEach((file) => form.append("files", file, file.webkitRelativePath || file.name));
-  form.append("dataset", $("#uploadDataset").value || "demo");
+  form.append("dataset", $("#uploadDataset").value || "默认数据集");
   form.append("person_key", $("#uploadPersonKey").value || "");
   form.append("tags", $("#uploadTags").value || "");
   form.append("infer_person", $("#uploadInferPerson").checked ? "true" : "false");
 
   $("#uploadButton").disabled = true;
-  $("#uploadButton").textContent = "Uploading...";
+  $("#uploadButton").textContent = "上传中...";
   try {
     const data = await api("/api/images/upload", { method: "POST", body: form });
     $("#uploadReport").innerHTML = `
       <div class="history-item">
-        <strong>Uploaded ${data.count} images</strong>
-        ${data.errors.length ? `<p class="muted">Partial failures: ${data.errors.map(escapeHtml).join(" ; ")}</p>` : ""}
+        <strong>已上传 ${data.count} 张图片</strong>
+        ${data.errors.length ? `<p class="muted">部分失败：${data.errors.map(escapeHtml).join("；")}</p>` : ""}
       </div>
     `;
     await refreshHealth();
     if (state.currentView === "galleryView") {
       await loadGallery();
     }
-    toast("Upload complete.");
+    toast("上传完成。");
   } finally {
     $("#uploadButton").disabled = false;
-    $("#uploadButton").textContent = "Upload and Index";
+    $("#uploadButton").textContent = "上传并入库";
   }
 }
 
 async function deleteImage(imageId) {
-  const confirmed = window.confirm("Delete this image from the gallery?");
+  const confirmed = window.confirm("确认从图库中删除这张图片吗？");
   if (!confirmed) {
     return;
   }
@@ -388,7 +429,7 @@ async function deleteImage(imageId) {
   if (state.currentView === SEARCH_CONFIG[GENERAL_TARGET].viewId) {
     clearResults(GENERAL_TARGET);
   }
-  toast("Image deleted.");
+  toast("图片已删除。");
 }
 
 async function loadHistory() {
@@ -397,7 +438,7 @@ async function loadHistory() {
     ? data.history.map((item) => `
       <article class="history-item">
         <header>
-          <strong>${escapeHtml(item.mode)} | ${escapeHtml(item.query_text || "")}</strong>
+          <strong>${escapeHtml(MODE_LABELS[item.mode] || item.mode)} | ${escapeHtml(item.query_text || "")}</strong>
           <span class="muted">${item.latency_ms} ms | ${escapeHtml(item.backend)}</span>
         </header>
         ${item.translated_text ? `<p class="muted">${escapeHtml(item.translated_text)}</p>` : ""}
@@ -406,7 +447,7 @@ async function loadHistory() {
         </div>
       </article>
     `).join("")
-    : `<p class="muted">No search history yet.</p>`;
+    : `<p class="muted">暂无搜索历史。</p>`;
 }
 
 async function loadInvites() {
@@ -418,10 +459,10 @@ async function loadInvites() {
           <strong>${escapeHtml(invite.code)}</strong>
           <span class="muted">${invite.used_count}/${invite.max_uses}</span>
         </header>
-        <p class="muted">${escapeHtml(invite.label || "no label")} ${invite.expires_at ? `| expires ${escapeHtml(invite.expires_at)}` : ""}</p>
+        <p class="muted">${escapeHtml(invite.label || "无备注")} ${invite.expires_at ? `| 过期时间 ${escapeHtml(invite.expires_at)}` : ""}</p>
       </article>
     `).join("")
-    : `<p class="muted">No invite codes yet.</p>`;
+    : `<p class="muted">暂无邀请码。</p>`;
 }
 
 async function createInvite() {
@@ -434,16 +475,16 @@ async function createInvite() {
       expires_days: expires ? Number(expires) : null,
     }),
   });
-  toast("Invite created.");
+  toast("邀请码已创建。");
   await loadInvites();
 }
 
 async function reindex() {
   $("#reindexButton").disabled = true;
-  $("#reindexReport").textContent = "Rebuilding embeddings...";
+  $("#reindexReport").textContent = "正在重建 embedding...";
   try {
     const data = await api("/api/admin/reindex", { method: "POST", body: JSON.stringify({}) });
-    $("#reindexReport").textContent = `${data.backend} | ${data.count} images | ${data.latency_ms} ms`;
+    $("#reindexReport").textContent = `${data.backend} | ${data.count} 张图片 | ${data.latency_ms} ms`;
     await refreshHealth();
   } finally {
     $("#reindexButton").disabled = false;
@@ -453,14 +494,14 @@ async function reindex() {
 async function uploadVideo() {
   const file = $("#videoFile").files[0];
   if (!file) {
-    toast("Please select a video file.");
+    toast("请选择视频文件。");
     return;
   }
   const form = new FormData();
   form.append("file", file);
-  form.append("dataset", $("#videoDataset").value || "video-demo");
+  form.append("dataset", $("#videoDataset").value || "视频数据集");
   await api("/api/videos/upload", { method: "POST", body: form });
-  toast("Video queued.");
+  toast("视频已加入队列。");
   await loadVideos();
 }
 
@@ -476,7 +517,7 @@ async function loadVideos() {
         <p class="muted">${escapeHtml(video.message || "")}</p>
       </article>
     `).join("")
-    : `<p class="muted">No queued videos yet.</p>`;
+    : `<p class="muted">暂无排队中的视频。</p>`;
 }
 
 function bindFileLabel(inputId, labelId, fallbackText) {
@@ -542,17 +583,17 @@ function bindEvents() {
   $(`#${SEARCH_CONFIG[PERSON_TARGET].clearId}`).addEventListener("click", () => clearResults(PERSON_TARGET));
   $(`#${SEARCH_CONFIG[GENERAL_TARGET].clearId}`).addEventListener("click", () => clearResults(GENERAL_TARGET));
 
-  bindFileLabel("personQueryImage", "personQueryImageName", "No file selected");
-  bindFileLabel("generalQueryImage", "generalQueryImageName", "No file selected");
+  bindFileLabel("personQueryImage", "personQueryImageName", "尚未选择文件");
+  bindFileLabel("generalQueryImage", "generalQueryImageName", "尚未选择文件");
 
   $("#uploadFiles").addEventListener("change", (event) => {
-    $("#uploadFolderCount").textContent = `${event.target.files.length} files`;
+    $("#uploadFolderCount").textContent = `已选择 ${event.target.files.length} 个文件`;
   });
   $("#uploadFlatFiles").addEventListener("change", (event) => {
-    $("#uploadFileCount").textContent = `${event.target.files.length} files`;
+    $("#uploadFileCount").textContent = `已选择 ${event.target.files.length} 张图片`;
   });
   $("#videoFile").addEventListener("change", (event) => {
-    $("#videoFileName").textContent = event.target.files[0]?.name || "No file selected";
+    $("#videoFileName").textContent = event.target.files[0]?.name || "尚未选择文件";
   });
 
   $("#uploadButton").addEventListener("click", () => uploadImages().catch((err) => toast(err.message)));

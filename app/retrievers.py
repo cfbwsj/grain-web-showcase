@@ -30,6 +30,26 @@ COLOR_PROTOTYPES: list[tuple[str, tuple[int, int, int]]] = [
 TOKEN_RE = re.compile(r"[a-zA-Z0-9_]+")
 PERSON_TARGET = "person"
 GENERAL_TARGET = "general"
+OPENCLIP_PROMPT_PREFIXES = (
+    "a photo of ",
+    "an image of ",
+    "a close-up photo of ",
+    "a detailed photo of ",
+    "a full body photo of ",
+)
+METADATA_STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "of",
+    "photo",
+    "image",
+    "full",
+    "body",
+    "close",
+    "up",
+    "detailed",
+}
 
 
 def normalize_target_type(target_type: str | None) -> str:
@@ -132,6 +152,22 @@ class OpenClipRetriever(BaseRetriever):
         vector = tensor.detach().cpu().float().numpy()[0]
         return normalize_vector(vector)
 
+    def _prompt_variants(self, text: str) -> list[str]:
+        base = re.sub(r"\s+", " ", (text or "").strip()).strip(" ,.;:")
+        if not base:
+            return [""]
+        lowered = base.lower()
+        if lowered.startswith(OPENCLIP_PROMPT_PREFIXES):
+            return [base]
+        variants = [
+            base,
+            f"a photo of {base}",
+            f"an image of {base}",
+            f"a close-up photo of {base}",
+            f"a detailed photo of {base}",
+        ]
+        return list(dict.fromkeys(variants))
+
     def encode_image(self, image: Image.Image) -> np.ndarray:
         tensor = self.preprocess(image.convert("RGB")).unsqueeze(0).to(self.device)
         with self.torch.no_grad():
@@ -139,10 +175,15 @@ class OpenClipRetriever(BaseRetriever):
         return self._finalize(features)
 
     def encode_text(self, text: str) -> np.ndarray:
-        tokens = self.tokenizer([text]).to(self.device)
+        prompts = self._prompt_variants(text)
+        tokens = self.tokenizer(prompts).to(self.device)
         with self.torch.no_grad():
             features = self.model.encode_text(tokens)
-        return self._finalize(features)
+        vectors = features.detach().cpu().float().numpy()
+        if vectors.ndim == 1:
+            return normalize_vector(vectors)
+        normalized = np.asarray([normalize_vector(vector) for vector in vectors], dtype="float32")
+        return normalize_vector(normalized.mean(axis=0))
 
 
 class GrainRetriever(BaseRetriever):
@@ -211,14 +252,14 @@ def token_set(text: str) -> set[str]:
 
 
 def metadata_similarity(query: str, image_record: dict[str, Any]) -> float:
-    query_tokens = token_set(query)
+    query_tokens = {token for token in token_set(query) if token not in METADATA_STOPWORDS}
     if not query_tokens:
         return 0.0
     haystack = " ".join(
         str(image_record.get(key) or "")
         for key in ("original_filename", "dataset", "person_key", "title", "tags")
     )
-    target_tokens = token_set(haystack)
+    target_tokens = {token for token in token_set(haystack) if token not in METADATA_STOPWORDS}
     if not target_tokens:
         return 0.0
     overlap = len(query_tokens & target_tokens)

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>GRAIN Retrieval Showcase</title>
+    <title>GRAIN 检索展示系统</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
@@ -14,47 +14,47 @@
         <div class="brand-block">
           <div class="brand-mark">G</div>
           <div>
-            <p class="eyebrow">GRAIN Web Demo</p>
-            <h1>Pedestrian and General Retrieval</h1>
-            <p class="muted">Upload image sets, run person retrieval with GRAIN, and run general retrieval with OpenCLIP.</p>
+            <p class="eyebrow">GRAIN 网页演示</p>
+            <h1>行人检索与通用检索</h1>
+            <p class="muted">上传图片集，使用 GRAIN 做行人检索，使用 OpenCLIP 做通用物品与场景检索。</p>
           </div>
         </div>
 
         <div class="auth-tabs" role="tablist">
-          <button class="tab-button active" data-auth-tab="login" type="button">Login</button>
-          <button class="tab-button" data-auth-tab="register" type="button">Register</button>
+          <button class="tab-button active" data-auth-tab="login" type="button">登录</button>
+          <button class="tab-button" data-auth-tab="register" type="button">注册</button>
         </div>
 
         <form id="loginForm" class="auth-form">
           <label>
-            Email
-            <input name="email" type="email" autocomplete="email" required placeholder="Enter your email" />
+            邮箱
+            <input name="email" type="email" autocomplete="email" required placeholder="请输入邮箱" />
           </label>
           <label>
-            Password
-            <input name="password" type="password" autocomplete="current-password" required placeholder="Enter your password" />
+            密码
+            <input name="password" type="password" autocomplete="current-password" required placeholder="请输入密码" />
           </label>
-          <button class="primary-button" type="submit">Sign In</button>
+          <button class="primary-button" type="submit">登录</button>
         </form>
 
         <form id="registerForm" class="auth-form hidden">
           <label>
-            Email
+            邮箱
             <input name="email" type="email" autocomplete="email" required />
           </label>
           <label>
-            Display Name
+            显示名称
             <input name="display_name" type="text" autocomplete="name" />
           </label>
           <label>
-            Invite Code
+            邀请码
             <input name="invite_code" type="text" required />
           </label>
           <label>
-            Password
+            密码
             <input name="password" type="password" autocomplete="new-password" minlength="8" required />
           </label>
-          <button class="primary-button" type="submit">Create Account</button>
+          <button class="primary-button" type="submit">创建账号</button>
         </form>
       </div>
     </section>
@@ -65,132 +65,132 @@
           <div class="brand-mark">G</div>
           <div>
             <strong>GRAIN</strong>
-            <span>Retrieval Lab</span>
+            <span>检索工作台</span>
           </div>
         </div>
         <nav class="nav-list" aria-label="Main navigation">
           <section class="nav-section">
-            <p class="nav-section-label">Retrieval</p>
-            <button class="nav-item active" data-view="personSearchView" type="button">Person Search</button>
-            <button class="nav-item" data-view="generalSearchView" type="button">General Search</button>
+            <p class="nav-section-label">检索</p>
+            <button class="nav-item active" data-view="personSearchView" type="button">行人检索</button>
+            <button class="nav-item" data-view="generalSearchView" type="button">通用检索</button>
           </section>
           <section class="nav-section">
-            <p class="nav-section-label">Library</p>
-            <button class="nav-item" data-view="galleryView" type="button">Gallery</button>
-            <button class="nav-item" data-view="uploadView" type="button">Upload</button>
-            <button class="nav-item" data-view="historyView" type="button">History</button>
-            <button class="nav-item" data-view="videoView" type="button">Video</button>
+            <p class="nav-section-label">数据</p>
+            <button class="nav-item" data-view="galleryView" type="button">图库</button>
+            <button class="nav-item" data-view="uploadView" type="button">上传</button>
+            <button class="nav-item" data-view="historyView" type="button">历史</button>
+            <button class="nav-item" data-view="videoView" type="button">视频</button>
           </section>
           <section class="nav-section">
-            <p class="nav-section-label">Admin</p>
-            <button id="adminNav" class="nav-item hidden" data-view="adminView" type="button">Admin Panel</button>
+            <p class="nav-section-label">管理</p>
+            <button id="adminNav" class="nav-item hidden" data-view="adminView" type="button">管理面板</button>
           </section>
         </nav>
         <div class="user-panel">
           <span id="userEmail">-</span>
-          <button id="logoutButton" class="ghost-button" type="button">Logout</button>
+          <button id="logoutButton" class="ghost-button" type="button">退出登录</button>
         </div>
       </aside>
 
       <section class="content-shell">
         <header class="topbar">
           <div>
-            <p id="viewEyebrow" class="eyebrow">Search</p>
-            <h2 id="viewTitle">Retrieval Workbench</h2>
+            <p id="viewEyebrow" class="eyebrow">检索</p>
+            <h2 id="viewTitle">检索工作台</h2>
           </div>
-          <div id="healthBadge" class="health-badge">checking...</div>
+          <div id="healthBadge" class="health-badge">正在检查...</div>
         </header>
 
         <section id="personSearchView" class="view active-view">
           <section class="search-hero">
             <div>
-              <h3>Person Retrieval</h3>
+              <h3>行人检索</h3>
               <p class="muted">
-                Dedicated pedestrian branch. Text, attribute, and image queries all stay in the person pipeline and can group the matched identity.
+                专用于行人检索。文本、属性、图片查询都走行人分支，并支持按同一身份聚合展示。
               </p>
             </div>
-            <div id="personBackendStatus" class="search-status">Checking backend...</div>
+            <div id="personBackendStatus" class="search-status">正在检查后端...</div>
           </section>
 
           <div class="tool-grid">
             <section class="panel">
               <div class="panel-title">
-                <h3>Person Text Search</h3>
-                <span>Chinese text is normalized before retrieval</span>
+                <h3>行人文本检索</h3>
+                <span>中文文本会在后端做归一化后再检索</span>
               </div>
-              <textarea id="personTextQuery" rows="4" placeholder="Example: man in a red jacket with black backpack"></textarea>
+              <textarea id="personTextQuery" rows="4" placeholder="例如：红色外套黑色背包的男性"></textarea>
               <div class="inline-controls">
-                <label class="check-row"><input id="personTextGroupByPerson" type="checkbox" checked /> Group same identity photos</label>
-                <label>Top K <input id="personTextTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
+                <label class="check-row"><input id="personTextGroupByPerson" type="checkbox" checked /> 聚合同一身份图片</label>
+                <label>返回数量 <input id="personTextTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
               </div>
-              <button id="runPersonTextSearch" class="primary-button" type="button">Run Person Text Search</button>
+              <button id="runPersonTextSearch" class="primary-button" type="button">开始行人文本检索</button>
             </section>
 
             <section class="panel">
               <div class="panel-title">
-                <h3>Person Attribute Search</h3>
-                <span>Only available for pedestrian retrieval</span>
+                <h3>行人属性检索</h3>
+                <span>仅用于行人检索分支</span>
               </div>
               <div class="attribute-grid">
                 <select id="personAttrGender">
-                  <option value="person">person</option>
-                  <option value="man">man</option>
-                  <option value="woman">woman</option>
+                  <option value="person">人物</option>
+                  <option value="man">男性</option>
+                  <option value="woman">女性</option>
                 </select>
                 <select id="personAttrTopColor">
-                  <option value="">top color</option>
-                  <option>black</option><option>white</option><option>red</option><option>blue</option>
-                  <option>green</option><option>yellow</option><option>gray</option><option>brown</option>
-                  <option>orange</option><option>pink</option><option>purple</option>
+                  <option value="">上衣颜色</option>
+                  <option value="black">黑色</option><option value="white">白色</option><option value="red">红色</option><option value="blue">蓝色</option>
+                  <option value="green">绿色</option><option value="yellow">黄色</option><option value="gray">灰色</option><option value="brown">棕色</option>
+                  <option value="orange">橙色</option><option value="pink">粉色</option><option value="purple">紫色</option>
                 </select>
                 <select id="personAttrTopType">
-                  <option value="">top type</option>
-                  <option>shirt</option><option>jacket</option><option>hoodie</option><option>dress</option>
+                  <option value="">上衣类型</option>
+                  <option value="shirt">衬衫</option><option value="jacket">外套</option><option value="hoodie">卫衣</option><option value="dress">连衣裙</option>
                 </select>
                 <select id="personAttrBottomColor">
-                  <option value="">bottom color</option>
-                  <option>black</option><option>white</option><option>blue</option><option>gray</option>
-                  <option>brown</option><option>red</option>
+                  <option value="">下装颜色</option>
+                  <option value="black">黑色</option><option value="white">白色</option><option value="blue">蓝色</option><option value="gray">灰色</option>
+                  <option value="brown">棕色</option><option value="red">红色</option>
                 </select>
                 <select id="personAttrBottomType">
-                  <option value="">bottom type</option>
-                  <option>pants</option><option>jeans</option><option>shorts</option><option>skirt</option>
+                  <option value="">下装类型</option>
+                  <option value="pants">长裤</option><option value="jeans">牛仔裤</option><option value="shorts">短裤</option><option value="skirt">裙子</option>
                 </select>
                 <select id="personAttrAccessory">
-                  <option value="">accessory</option>
-                  <option>backpack</option><option>bag</option><option>hat</option><option>glasses</option>
-                  <option>mask</option><option>scarf</option>
+                  <option value="">配饰</option>
+                  <option value="backpack">背包</option><option value="bag">包</option><option value="hat">帽子</option><option value="glasses">眼镜</option>
+                  <option value="mask">口罩</option><option value="scarf">围巾</option>
                 </select>
               </div>
-              <input id="personAttrExtra" type="text" placeholder="extra description, e.g. walking, holding phone" />
-              <button id="runPersonAttributeSearch" class="secondary-button" type="button">Run Attribute Search</button>
+              <input id="personAttrExtra" type="text" placeholder="补充描述，例如：在走路、拿着手机" />
+              <button id="runPersonAttributeSearch" class="secondary-button" type="button">开始属性检索</button>
             </section>
 
             <section class="panel">
               <div class="panel-title">
-                <h3>Person Image Search</h3>
-                <span>Returns the matched identity and related photos</span>
+                <h3>行人图片检索</h3>
+                <span>返回命中的身份及其相关图片</span>
               </div>
               <label class="dropzone">
                 <input id="personQueryImage" type="file" accept="image/*" />
-                <span>Select a query image</span>
-                <strong id="personQueryImageName">No file selected</strong>
+                <span>选择查询图片</span>
+                <strong id="personQueryImageName">尚未选择文件</strong>
               </label>
               <div class="inline-controls">
-                <label class="check-row"><input id="personImageGroupByPerson" type="checkbox" checked /> Group same identity photos</label>
-                <label>Top K <input id="personImageTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
+                <label class="check-row"><input id="personImageGroupByPerson" type="checkbox" checked /> 聚合同一身份图片</label>
+                <label>返回数量 <input id="personImageTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
               </div>
-              <button id="runPersonImageSearch" class="primary-button" type="button">Run Person Image Search</button>
+              <button id="runPersonImageSearch" class="primary-button" type="button">开始行人图片检索</button>
             </section>
           </div>
 
           <section class="results-section">
             <div class="section-bar">
               <div>
-                <h3>Results</h3>
-                <p id="personSearchMeta" class="muted">Waiting for a person retrieval task.</p>
+                <h3>检索结果</h3>
+                <p id="personSearchMeta" class="muted">等待执行行人检索任务。</p>
               </div>
-              <button id="clearPersonResults" class="ghost-button" type="button">Clear</button>
+              <button id="clearPersonResults" class="ghost-button" type="button">清空结果</button>
             </div>
             <div id="personResultsGrid" class="image-grid"></div>
           </section>
@@ -199,51 +199,51 @@
         <section id="generalSearchView" class="view">
           <section class="search-hero">
             <div>
-              <h3>General Retrieval</h3>
+              <h3>通用检索</h3>
               <p class="muted">
-                Separate OpenCLIP branch for objects, scenes, and non-person text queries. This branch returns the top similar images directly.
+                独立的 OpenCLIP 分支，适用于物品、场景和非行人文本查询，直接返回最相似的图片。
               </p>
             </div>
-            <div id="generalBackendStatus" class="search-status">Checking backend...</div>
+            <div id="generalBackendStatus" class="search-status">正在检查后端...</div>
           </section>
 
           <div class="tool-grid two-column-tools">
             <section class="panel">
               <div class="panel-title">
-                <h3>General Text Search</h3>
-                <span>Use this for cars, bags, suitcases, scenes, and other non-person queries</span>
+                <h3>通用文本检索</h3>
+                <span>用于汽车、箱包、水果、场景等非行人查询</span>
               </div>
-              <textarea id="generalTextQuery" rows="4" placeholder="Example: blue car / black suitcase / red bicycle near the station"></textarea>
+              <textarea id="generalTextQuery" rows="4" placeholder="例如：芒果 / 蓝色汽车 / 车站附近的红色自行车"></textarea>
               <div class="inline-controls">
-                <label>Top K <input id="generalTextTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
+                <label>返回数量 <input id="generalTextTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
               </div>
-              <button id="runGeneralTextSearch" class="primary-button" type="button">Run General Text Search</button>
+              <button id="runGeneralTextSearch" class="primary-button" type="button">开始通用文本检索</button>
             </section>
 
             <section class="panel">
               <div class="panel-title">
-                <h3>General Image Search</h3>
-                <span>Use an object or scene image as the query</span>
+                <h3>通用图片检索</h3>
+                <span>使用物品或场景图片作为查询</span>
               </div>
               <label class="dropzone">
                 <input id="generalQueryImage" type="file" accept="image/*" />
-                <span>Select a query image</span>
-                <strong id="generalQueryImageName">No file selected</strong>
+                <span>选择查询图片</span>
+                <strong id="generalQueryImageName">尚未选择文件</strong>
               </label>
               <div class="inline-controls">
-                <label>Top K <input id="generalImageTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
+                <label>返回数量 <input id="generalImageTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
               </div>
-              <button id="runGeneralImageSearch" class="primary-button" type="button">Run General Image Search</button>
+              <button id="runGeneralImageSearch" class="primary-button" type="button">开始通用图片检索</button>
             </section>
           </div>
 
           <section class="results-section">
             <div class="section-bar">
               <div>
-                <h3>Results</h3>
-                <p id="generalSearchMeta" class="muted">Waiting for a general retrieval task.</p>
+                <h3>检索结果</h3>
+                <p id="generalSearchMeta" class="muted">等待执行通用检索任务。</p>
               </div>
-              <button id="clearGeneralResults" class="ghost-button" type="button">Clear</button>
+              <button id="clearGeneralResults" class="ghost-button" type="button">清空结果</button>
             </div>
             <div id="generalResultsGrid" class="image-grid"></div>
           </section>
@@ -252,13 +252,13 @@
         <section id="galleryView" class="view">
           <div class="section-bar">
             <div>
-              <h3>Gallery</h3>
+              <h3>图库</h3>
               <p id="galleryCount" class="muted">-</p>
             </div>
             <div class="filter-row">
-              <input id="gallerySearch" type="search" placeholder="filename / tag / person id" />
-              <select id="datasetFilter"><option value="">all datasets</option></select>
-              <button id="refreshGallery" class="secondary-button" type="button">Refresh</button>
+              <input id="gallerySearch" type="search" placeholder="按文件名 / 标签 / 行人 ID 搜索" />
+              <select id="datasetFilter"><option value="">全部数据集</option></select>
+              <button id="refreshGallery" class="secondary-button" type="button">刷新</button>
             </div>
           </div>
           <div id="galleryGrid" class="image-grid"></div>
@@ -267,26 +267,26 @@
         <section id="uploadView" class="view">
           <section class="panel wide-panel">
             <div class="panel-title">
-              <h3>Upload Image Set</h3>
-              <span>Large mobile photos are resized server-side before indexing</span>
+              <h3>上传图片集</h3>
+              <span>手机大图会在服务端压缩后再入库</span>
             </div>
             <div class="upload-form">
-              <label>Dataset Name <input id="uploadDataset" type="text" value="demo" /></label>
-              <label>Fixed Person ID <input id="uploadPersonKey" type="text" placeholder="leave empty to infer from folder" /></label>
-              <label>Tags <input id="uploadTags" type="text" placeholder="campus, bag, car, suitcase, station" /></label>
-              <label class="check-row"><input id="uploadInferPerson" type="checkbox" checked /> Infer person id from path or filename</label>
-              <p class="muted upload-tip">Upload speed still depends on your mobile network, but the server now skips embedding generation during upload and computes it lazily on search.</p>
+              <label>数据集名称 <input id="uploadDataset" type="text" value="默认数据集" /></label>
+              <label>固定行人 ID <input id="uploadPersonKey" type="text" placeholder="留空则从目录或文件名推断" /></label>
+              <label>标签 <input id="uploadTags" type="text" placeholder="校园, 背包, 汽车, 行李箱, 车站" /></label>
+              <label class="check-row"><input id="uploadInferPerson" type="checkbox" checked /> 从路径或文件名推断行人 ID</label>
+              <p class="muted upload-tip">上传速度仍然受网络影响，但服务端现在会跳过上传阶段的 embedding 计算，改为检索时按需生成。</p>
               <label class="dropzone large">
                 <input id="uploadFiles" type="file" accept="image/*" multiple webkitdirectory />
-                <span>Select an image folder</span>
-                <strong id="uploadFolderCount">No folder selected</strong>
+                <span>选择图片文件夹</span>
+                <strong id="uploadFolderCount">尚未选择文件夹</strong>
               </label>
               <label class="dropzone large">
                 <input id="uploadFlatFiles" type="file" accept="image/*" multiple />
-                <span>Select multiple images</span>
-                <strong id="uploadFileCount">No images selected</strong>
+                <span>选择多张图片</span>
+                <strong id="uploadFileCount">尚未选择图片</strong>
               </label>
-              <button id="uploadButton" class="primary-button" type="button">Upload and Index</button>
+              <button id="uploadButton" class="primary-button" type="button">上传并入库</button>
             </div>
           </section>
           <div id="uploadReport" class="report"></div>
@@ -295,10 +295,10 @@
         <section id="historyView" class="view">
           <div class="section-bar">
             <div>
-              <h3>Search History</h3>
-              <p class="muted">Recent retrieval requests for the current account.</p>
+              <h3>搜索历史</h3>
+              <p class="muted">当前账号最近的检索记录。</p>
             </div>
-            <button id="refreshHistory" class="secondary-button" type="button">Refresh</button>
+            <button id="refreshHistory" class="secondary-button" type="button">刷新</button>
           </div>
           <div id="historyList" class="history-list"></div>
         </section>
@@ -306,16 +306,16 @@
         <section id="videoView" class="view">
           <section class="panel wide-panel">
             <div class="panel-title">
-              <h3>Video Queue</h3>
-              <span>Reserved for the next step after image retrieval is stable</span>
+              <h3>视频队列</h3>
+              <span>视频上传与检索接口已预留，待图片检索稳定后继续完善</span>
             </div>
-            <label>Dataset Name <input id="videoDataset" type="text" value="video-demo" /></label>
+            <label>数据集名称 <input id="videoDataset" type="text" value="视频数据集" /></label>
             <label class="dropzone large">
               <input id="videoFile" type="file" accept="video/*" />
-              <span>Select a video</span>
-              <strong id="videoFileName">No file selected</strong>
+              <span>选择视频文件</span>
+              <strong id="videoFileName">尚未选择文件</strong>
             </label>
-            <button id="uploadVideoButton" class="secondary-button" type="button">Upload to Queue</button>
+            <button id="uploadVideoButton" class="secondary-button" type="button">上传到队列</button>
           </section>
           <div id="videoList" class="history-list"></div>
         </section>
@@ -324,20 +324,20 @@
           <div class="admin-grid">
             <section class="panel">
               <div class="panel-title">
-                <h3>Invite Codes</h3>
-                <span>Registration requires an invite code</span>
+                <h3>邀请码</h3>
+                <span>注册账号需要邀请码</span>
               </div>
-              <label>Label <input id="inviteLabel" type="text" placeholder="demo account" /></label>
-              <label>Max Uses <input id="inviteUses" type="number" min="1" max="500" value="1" /></label>
-              <label>Expires in Days <input id="inviteDays" type="number" min="1" max="3650" placeholder="leave blank for no expiry" /></label>
-              <button id="createInvite" class="primary-button" type="button">Create Invite</button>
+              <label>备注 <input id="inviteLabel" type="text" placeholder="演示账号" /></label>
+              <label>最大使用次数 <input id="inviteUses" type="number" min="1" max="500" value="1" /></label>
+              <label>过期天数 <input id="inviteDays" type="number" min="1" max="3650" placeholder="留空表示永不过期" /></label>
+              <button id="createInvite" class="primary-button" type="button">创建邀请码</button>
             </section>
             <section class="panel">
               <div class="panel-title">
-                <h3>Index Maintenance</h3>
-                <span>Rebuild both person and general embeddings</span>
+                <h3>索引维护</h3>
+                <span>重建行人与通用检索的 embedding</span>
               </div>
-              <button id="reindexButton" class="secondary-button" type="button">Rebuild Embeddings</button>
+              <button id="reindexButton" class="secondary-button" type="button">重建 Embedding</button>
               <p id="reindexReport" class="muted"></p>
             </section>
           </div>

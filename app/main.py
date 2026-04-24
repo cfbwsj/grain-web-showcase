@@ -75,13 +75,16 @@ def image_payload(
     score: float | None = None,
     rank: int | None = None,
     *,
+    display_score: float | None = None,
     user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    visible_score = score if display_score is None else display_score
     payload = {
         "id": row["id"],
         "rank": rank,
         "score": score,
-        "similarity_pct": None if score is None else round(max(0.0, min(1.0, score)) * 100, 1),
+        "display_score": visible_score,
+        "similarity_pct": None if visible_score is None else round(max(0.0, min(1.0, visible_score)) * 100, 1),
         "original_filename": row["original_filename"],
         "url": media_url(row["stored_path"]),
         "thumbnail_url": media_url(row["thumbnail_path"]),
@@ -637,7 +640,7 @@ def score_rows(
         else:
             if query_text:
                 if target_type == GENERAL_TARGET:
-                    visual_weight = 0.86 if retriever.semantic_text else 0.62
+                    visual_weight = 0.94 if retriever.semantic_text else 0.62
                 else:
                     visual_weight = 0.92 if retriever.semantic_text else 0.88
                 score = (visual_weight * visual) + ((1.0 - visual_weight) * meta)
@@ -655,11 +658,58 @@ def score_rows(
             selected = [(score, row) for score, row in scored if row.get("person_key") == matched_person]
             selected = selected[: max(top_k, len(selected))]
 
-    return [row_to_dict_result(row, score, index) for index, (score, row) in enumerate(selected)], matched_person
+    calibrated = calibrate_result_scores(
+        selected,
+        target_type=target_type,
+        semantic_text=retriever.semantic_text,
+    )
+    return [
+        row_to_dict_result(row, score, index, display_score=display_score)
+        for index, (score, row, display_score) in enumerate(calibrated)
+    ], matched_person
 
 
-def row_to_dict_result(row: dict[str, Any], score: float, index: int) -> dict[str, Any]:
-    return image_payload(row, score=score, rank=index + 1)
+def calibrate_result_scores(
+    selected: list[tuple[float, dict[str, Any]]],
+    *,
+    target_type: str,
+    semantic_text: bool,
+) -> list[tuple[float, dict[str, Any], float]]:
+    if not selected:
+        return []
+
+    target_type = normalize_target_type(target_type)
+    if target_type != GENERAL_TARGET or not semantic_text:
+        return [(score, row, score) for score, row in selected]
+
+    scores = np.asarray([score for score, _ in selected], dtype="float32")
+    best = float(scores.max())
+    floor = max(0.48, float(np.percentile(scores, 35)))
+    span = max(best - floor, 1e-6)
+
+    calibrated: list[tuple[float, dict[str, Any], float]] = []
+    for index, (score, row) in enumerate(selected):
+        absolute = float(np.clip((score - 0.48) / 0.32, 0.0, 1.0))
+        relative = float(np.clip((score - floor) / span, 0.0, 1.0))
+        display = absolute * (0.55 + (0.45 * relative))
+        calibrated.append((score, row, float(np.clip(display, 0.0, 1.0))))
+
+    kept = [
+        item
+        for index, item in enumerate(calibrated)
+        if index < 3 or item[2] >= 0.08
+    ]
+    return kept or calibrated[:3]
+
+
+def row_to_dict_result(
+    row: dict[str, Any],
+    score: float,
+    index: int,
+    *,
+    display_score: float | None = None,
+) -> dict[str, Any]:
+    return image_payload(row, score=score, rank=index + 1, display_score=display_score)
 
 
 def materialize_search_results(
@@ -672,7 +722,13 @@ def materialize_search_results(
         if row is None:
             continue
         materialized.append(
-            image_payload(row, score=item["score"], rank=item["rank"], user=user)
+            image_payload(
+                row,
+                score=item["score"],
+                rank=item["rank"],
+                display_score=item.get("display_score"),
+                user=user,
+            )
         )
     return materialized
 
