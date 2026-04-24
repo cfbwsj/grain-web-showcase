@@ -1,0 +1,59 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+
+BASE_DIR = Path(__file__).resolve().parents[1]
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _list_env(name: str) -> list[str]:
+    value = os.getenv(name, "")
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+@dataclass(frozen=True)
+class Settings:
+    app_name: str = "GRAIN Retrieval Showcase"
+    base_dir: Path = BASE_DIR
+    data_dir: Path = Path(os.getenv("DATA_DIR", BASE_DIR / "data")).resolve()
+    secret_key: str = os.getenv(
+        "SECRET_KEY",
+        "dev-secret-change-me-please-use-env-in-production-2026",
+    )
+    jwt_algorithm: str = "HS256"
+    jwt_expire_hours: int = int(os.getenv("JWT_EXPIRE_HOURS", "72"))
+    cookie_secure: bool = _bool_env("COOKIE_SECURE", bool(os.getenv("RENDER")))
+    super_admin_email: str = os.getenv("SUPER_ADMIN_EMAIL", "admin@grain.local")
+    super_admin_password: str = os.getenv(
+        "SUPER_ADMIN_PASSWORD", "ChangeMe-Grain-Admin-2026!"
+    )
+    invite_bootstrap_codes: tuple[str, ...] = tuple(_list_env("INVITE_BOOTSTRAP_CODES"))
+    retriever_backend: str = os.getenv("RETRIEVER_BACKEND", "feature").strip().lower()
+    clip_model_name: str = os.getenv("CLIP_MODEL_NAME", "openai/clip-vit-base-patch32")
+    max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "25"))
+    search_default_top_k: int = int(os.getenv("SEARCH_DEFAULT_TOP_K", "24"))
+    search_max_top_k: int = int(os.getenv("SEARCH_MAX_TOP_K", "100"))
+
+    @property
+    def database_path(self) -> Path:
+        return self.data_dir / "grain_web.sqlite3"
+
+    @property
+    def upload_dir(self) -> Path:
+        return self.data_dir / "uploads"
+
+    @property
+    def video_dir(self) -> Path:
+        return self.data_dir / "videos"
+
+
+settings = Settings()

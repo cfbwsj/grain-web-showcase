@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: grain-web-showcase
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATA_DIR
+        value: /var/data
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: RETRIEVER_BACKEND
+        value: feature
+      - key: SUPER_ADMIN_EMAIL
+        value: admin@grain.local
+      - key: SUPER_ADMIN_PASSWORD
+        sync: false
+      - key: INVITE_BOOTSTRAP_CODES
+        sync: false
+    disk:
+      name: grain-web-data
+      mountPath: /var/data
+      sizeGB: 1
+

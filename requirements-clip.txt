@@ -1,0 +1,4 @@
+# Optional semantic retriever. Use on Render only when the instance has enough RAM.
+torch>=2.1
+transformers>=4.40
+
