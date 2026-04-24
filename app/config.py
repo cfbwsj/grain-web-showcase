@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -20,11 +21,30 @@ def _list_env(name: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _is_writable_directory(path: Path) -> bool:
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=path, delete=True):
+            pass
+        return True
+    except OSError:
+        return False
+
+
+def _resolve_data_dir() -> Path:
+    configured = Path(os.getenv("DATA_DIR", BASE_DIR / "data")).resolve()
+    fallback = (BASE_DIR / "data").resolve()
+    if _is_writable_directory(configured):
+        return configured
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "GRAIN Retrieval Showcase"
     base_dir: Path = BASE_DIR
-    data_dir: Path = Path(os.getenv("DATA_DIR", BASE_DIR / "data")).resolve()
+    data_dir: Path = _resolve_data_dir()
     secret_key: str = os.getenv(
         "SECRET_KEY",
         "dev-secret-change-me-please-use-env-in-production-2026",

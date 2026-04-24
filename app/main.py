@@ -185,6 +185,7 @@ def health() -> dict[str, Any]:
         "app": settings.app_name,
         "backend": retriever.name,
         "semantic_text": retriever.semantic_text,
+        "data_dir": str(settings.data_dir),
         "image_count": image_count,
         "user_count": user_count,
     }

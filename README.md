@@ -58,6 +58,8 @@ DATA_DIR: /var/data
 
 如果需要上传图片在重启后仍然保留，请为服务挂载 persistent disk 到 `/var/data`。如果不挂载磁盘，SQLite 数据库和上传文件会随着实例重建而丢失。
 
+如果你使用的是 Render 免费实例，它不能挂载 persistent disk，且 `/var/data` 往往不可写。当前版本会在这种情况下自动回退到项目内的本地可写目录继续启动，但这些数据仍然是非持久化的，只适合临时演示。
+
 建议设置这些环境变量：
 
 ```text
@@ -68,6 +70,8 @@ INVITE_BOOTSTRAP_CODES=<optional-initial-invite-code>
 COOKIE_SECURE=true
 RETRIEVER_BACKEND=feature
 ```
+
+免费实例建议直接不要手动设置 `DATA_DIR`，或者即使设置成 `/var/data`，应用也会自动回退到本地目录。
 
 ## 检索后端
 
@@ -111,4 +115,3 @@ CLIP_MODEL_NAME=openai/clip-vit-base-patch32
 - `POST /api/admin/reindex`
 - `POST /api/videos/upload`
 - `POST /api/search/video`
-
