@@ -162,8 +162,22 @@ def ensure_super_admin() -> None:
                 """,
                 (settings.super_admin_email, hash_password(settings.super_admin_password), now),
             )
-        elif existing["role"] != "admin":
-            conn.execute("UPDATE users SET role = 'admin' WHERE id = ?", (existing["id"],))
+        else:
+            updates: list[str] = []
+            params: list[Any] = []
+            if existing["role"] != "admin":
+                updates.append("role = 'admin'")
+            if not verify_password(settings.super_admin_password, existing["password_hash"]):
+                updates.append("password_hash = ?")
+                params.append(hash_password(settings.super_admin_password))
+            if not (existing["display_name"] or "").strip():
+                updates.append("display_name = 'Super Admin'")
+            if updates:
+                params.append(existing["id"])
+                conn.execute(
+                    f"UPDATE users SET {', '.join(updates)} WHERE id = ?",
+                    params,
+                )
 
         admin_id = conn.execute(
             "SELECT id FROM users WHERE email = ?", (settings.super_admin_email,)
