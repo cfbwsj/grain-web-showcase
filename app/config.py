@@ -77,6 +77,22 @@ class Settings:
         "GENERAL_OPENCLIP_PRETRAINED",
         "laion2b_s34b_b88k",
     ).strip()
+    translation_backend: str = os.getenv(
+        "TRANSLATION_BACKEND",
+        "transformers",
+    ).strip().lower()
+    translation_model_name: str = os.getenv(
+        "TRANSLATION_MODEL_NAME",
+        "Helsinki-NLP/opus-mt-zh-en",
+    ).strip()
+    translation_device: str = os.getenv(
+        "TRANSLATION_DEVICE",
+        "cpu",
+    ).strip().lower()
+    translation_max_new_tokens: int = int(
+        os.getenv("TRANSLATION_MAX_NEW_TOKENS", "96")
+    )
+    translation_num_beams: int = int(os.getenv("TRANSLATION_NUM_BEAMS", "4"))
     allow_retriever_fallback: bool = _bool_env("ALLOW_RETRIEVER_FALLBACK", True)
     max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "25"))
     search_default_top_k: int = int(os.getenv("SEARCH_DEFAULT_TOP_K", "24"))

@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import re
+from functools import lru_cache
+from typing import Any
+
+from .config import settings
 
 
 ASCII_TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
@@ -169,6 +173,68 @@ def _ordered_tokens(text: str) -> list[str]:
     return tokens
 
 
+def _pick_translation_device() -> str:
+    requested = settings.translation_device or "cpu"
+    if requested != "auto":
+        return requested
+    try:
+        import torch
+
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    except Exception:
+        return "cpu"
+
+
+@lru_cache(maxsize=1)
+def _load_transformers_translator() -> tuple[Any, Any, str]:
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(settings.translation_model_name)
+    model = AutoModelForSeq2SeqLM.from_pretrained(settings.translation_model_name)
+    device = _pick_translation_device()
+    if device != "cpu":
+        model = model.to(device)
+    model.eval()
+    return tokenizer, model, device
+
+
+def _translate_with_transformers(text: str) -> str | None:
+    import torch
+
+    tokenizer, model, device = _load_transformers_translator()
+    inputs = tokenizer(
+        [text],
+        return_tensors="pt",
+        padding=True,
+        truncation=True,
+        max_length=128,
+    )
+    if device != "cpu":
+        inputs = {key: value.to(device) for key, value in inputs.items()}
+    with torch.no_grad():
+        generated = model.generate(
+            **inputs,
+            max_new_tokens=settings.translation_max_new_tokens,
+            num_beams=settings.translation_num_beams,
+            early_stopping=True,
+        )
+    translated = tokenizer.batch_decode(generated, skip_special_tokens=True)[0].strip()
+    translated = re.sub(r"\s+", " ", translated)
+    return translated or None
+
+
+def _translate_with_dictionary(text: str) -> str | None:
+    tokens = _ordered_tokens(text)
+    if not tokens:
+        return None
+    has_person = any(
+        token in tokens for token in {"person", "man", "woman", "full body", "half body"}
+    )
+    prefix = "a full body photo of" if has_person else "a photo of"
+    prompt = f"{prefix} {' '.join(tokens)}".strip()
+    return re.sub(r"\s+", " ", prompt)
+
+
 def normalize_for_retrieval(text: str) -> tuple[str, str]:
     """Return an English-oriented retrieval prompt and the provider name."""
     text = (text or "").strip()
@@ -177,12 +243,20 @@ def normalize_for_retrieval(text: str) -> tuple[str, str]:
     if not contains_cjk(text):
         return text, "original"
 
-    tokens = _ordered_tokens(text)
-    if not tokens:
-        return text, "local-cjk-fallback"
+    backend = settings.translation_backend
+    if backend in {"transformers", "marian", "model", "auto"}:
+        try:
+            translated = _translate_with_transformers(text)
+            if translated:
+                return translated, "transformers-marian"
+        except Exception:
+            if backend != "auto":
+                dictionary_prompt = _translate_with_dictionary(text)
+                if dictionary_prompt:
+                    return dictionary_prompt, "local-zh-dictionary-fallback"
 
-    has_person = any(token in tokens for token in {"person", "man", "woman", "full body", "half body"})
-    prefix = "a full body photo of" if has_person else "a photo of"
-    prompt = f"{prefix} {' '.join(tokens)}".strip()
-    prompt = re.sub(r"\s+", " ", prompt)
-    return prompt, "local-zh-dictionary"
+    dictionary_prompt = _translate_with_dictionary(text)
+    if dictionary_prompt:
+        return dictionary_prompt, "local-zh-dictionary"
+
+    return text, "local-cjk-fallback"
