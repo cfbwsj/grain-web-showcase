@@ -1,6 +1,6 @@
 # GRAIN Web Retrieval Showcase
 
-这是一个为 GRAIN / CLIP4ReID 项目准备的轻量 Web 展示系统。它是独立的 FastAPI + 静态单页应用，支持部署到 Render，也预留了后续接入 GRAIN checkpoint、CLIP 语义检索和视频检索的接口。
+这是一个为 GRAIN / CLIP4ReID 项目准备的轻量 Web 展示系统。它是独立的 FastAPI + 静态单页应用，支持部署到 Render，也支持接入 GRAIN checkpoint、OpenCLIP 通用检索和视频行人检索。
 
 ## 已实现功能
 
@@ -12,9 +12,10 @@
 - 检索耗时、相似度百分比和排序条可视化。
 - 图库页面展示当前支持检索的图片数据。
 - 检索历史记录。
-- 视频上传和视频检索预留 API。
+- 视频上传、自动抽帧索引、视频文本行人检索和视频图片行人检索。
 - 普通用户仅能看到和检索自己的上传；管理员可查看全部图库。
 - 图库支持删除图片；普通用户只能删除自己的图片。
+- 视频支持删除原文件及抽帧索引；普通用户只能删除自己的视频。
 - 双分支检索：`person` 分支优先走 GRAIN，`general` 分支优先走 OpenCLIP。
 - 上传阶段不再强制计算 embedding，首次检索或重建索引时再懒加载缓存。
 
@@ -91,9 +92,15 @@ GENERAL_OPENCLIP_MODEL=ViT-B-16
 GENERAL_OPENCLIP_PRETRAINED=laion2b_s34b_b88k
 GRAIN_CONFIG_FILE=/absolute/path/to/configs.yaml
 GRAIN_CHECKPOINT=/absolute/path/to/best_map.pth
+MAX_VIDEO_UPLOAD_MB=768
+VIDEO_FRAME_INTERVAL_SECONDS=2.0
+VIDEO_MAX_FRAMES=160
+VIDEO_FRAME_MAX_SIDE=960
 ```
 
 如果 `GRAIN_CONFIG_FILE` 或 `GRAIN_CHECKPOINT` 未提供，系统会按 `ALLOW_RETRIEVER_FALLBACK=true` 自动回退到轻量特征检索，不会阻塞服务启动。
+
+视频检索使用 `person` 分支模型。上传视频时系统会按 `VIDEO_FRAME_INTERVAL_SECONDS` 抽帧，并最多保留 `VIDEO_MAX_FRAMES` 帧参与行人检索；如果视频很长或显存/内存紧张，可以调大抽帧间隔或调小最大帧数。
 
 ## GRAIN 权重说明
 
@@ -119,4 +126,7 @@ GRAIN_CHECKPOINT=/absolute/path/to/best_map.pth
 - `POST /api/admin/invites`
 - `POST /api/admin/reindex`
 - `POST /api/videos/upload`
-- `POST /api/search/video`
+- `GET /api/videos`
+- `DELETE /api/videos/{video_id}`
+- `POST /api/search/video/text`
+- `POST /api/search/video/image`

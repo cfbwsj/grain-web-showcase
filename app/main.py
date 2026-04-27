@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import re
 import secrets
-import shutil
 import time
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -15,7 +14,6 @@ import jwt
 import numpy as np
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -38,6 +36,7 @@ WEB_DIR = settings.base_dir / "web"
 MEDIA_DIR = settings.upload_dir
 IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "image/bmp"}
 VIDEO_MIME_PREFIXES = ("video/",)
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
 SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 PERSON_TARGET = "person"
 GENERAL_TARGET = "general"
@@ -977,57 +976,449 @@ def reindex(_: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     }
 
 
+def is_video_upload(file: UploadFile) -> bool:
+    if file.content_type and file.content_type.startswith(VIDEO_MIME_PREFIXES):
+        return True
+    suffix = Path(file.filename or "").suffix.lower()
+    return suffix in VIDEO_EXTENSIONS
+
+
+async def save_video_stream(file: UploadFile, stored_path: Path) -> int:
+    max_bytes = settings.max_video_upload_mb * 1024 * 1024
+    written = 0
+    stored_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with stored_path.open("wb") as buffer:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > max_bytes:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Video exceeds {settings.max_video_upload_mb} MB",
+                    )
+                buffer.write(chunk)
+    except Exception:
+        try:
+            stored_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    return written
+
+
+def update_video_status(video_id: int, status: str, message: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            "UPDATE videos SET status = ?, message = ? WHERE id = ?",
+            (status, message, video_id),
+        )
+
+
+def video_row_with_frame_count(video_id: int) -> dict[str, Any] | None:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT v.*, COUNT(f.id) AS frame_count
+            FROM videos v
+            LEFT JOIN video_frames f ON f.video_id = v.id
+            WHERE v.id = ?
+            GROUP BY v.id
+            """,
+            (video_id,),
+        ).fetchone()
+    return row_to_dict(row)
+
+
+def fetch_video(video_id: int, user: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    clauses = ["id = ?"]
+    params: list[Any] = [video_id]
+    if user is not None:
+        scope_clauses, scope_params = visibility_filters(user)
+        clauses.extend(scope_clauses)
+        params.extend(scope_params)
+    where = " AND ".join(clauses)
+    with connect() as conn:
+        row = conn.execute(f"SELECT * FROM videos WHERE {where}", params).fetchone()
+    return row_to_dict(row)
+
+
+def can_manage_video(user: dict[str, Any], row: dict[str, Any]) -> bool:
+    return is_admin(user) or row.get("uploaded_by") == user["id"]
+
+
+def remove_video_frame_files(video_id: int) -> None:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT image_path, thumbnail_path FROM video_frames WHERE video_id = ?",
+            (video_id,),
+        ).fetchall()
+        conn.execute("DELETE FROM video_frames WHERE video_id = ?", (video_id,))
+    for row in rows:
+        for key in ("image_path", "thumbnail_path"):
+            relative_path = row[key]
+            if not relative_path:
+                continue
+            try:
+                (settings.upload_dir / relative_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def resize_frame(image: Image.Image, max_side: int) -> Image.Image:
+    rgb = image.convert("RGB")
+    if max(rgb.size) > max_side:
+        rgb.thumbnail((max_side, max_side))
+    return rgb
+
+
+def index_video_frames(video_id: int, stored_rel: str) -> int:
+    try:
+        import cv2
+    except ImportError as exc:
+        raise RuntimeError(
+            "缺少视频抽帧依赖 opencv-python-headless，请重新安装 requirements-clip.txt"
+        ) from exc
+
+    retriever = get_retriever(PERSON_TARGET)
+    video_path = settings.video_dir / stored_rel
+    capture = cv2.VideoCapture(str(video_path))
+    if not capture.isOpened():
+        raise RuntimeError("无法读取视频文件，请确认格式是否受支持")
+
+    remove_video_frame_files(video_id)
+    now = utc_now()
+    uid = uuid4().hex
+    fps = float(capture.get(cv2.CAP_PROP_FPS) or 0.0)
+    if fps <= 0:
+        fps = 25.0
+    interval_frames = max(1, int(round(fps * max(settings.video_frame_interval_seconds, 0.25))))
+    frame_index = 0
+    saved = 0
+    try:
+        while saved < settings.video_max_frames:
+            ok, frame_bgr = capture.read()
+            if not ok:
+                break
+            if frame_index % interval_frames != 0:
+                frame_index += 1
+                continue
+
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            image = resize_frame(Image.fromarray(frame_rgb), settings.video_frame_max_side)
+            timestamp_ms = int((frame_index / fps) * 1000)
+            rel_dir = Path("video_frames") / now[:7]
+            thumb_dir = Path("video_thumbs") / now[:7]
+            frame_rel = rel_dir / f"{video_id}_{uid}_{saved:05d}.jpg"
+            thumb_rel = thumb_dir / f"{video_id}_{uid}_{saved:05d}.jpg"
+            frame_path = settings.upload_dir / frame_rel
+            thumb_path = settings.upload_dir / thumb_rel
+            frame_path.parent.mkdir(parents=True, exist_ok=True)
+            thumb_path.parent.mkdir(parents=True, exist_ok=True)
+
+            image.save(frame_path, "JPEG", quality=86)
+            thumb = image.copy()
+            thumb.thumbnail((THUMBNAIL_MAX_SIDE, THUMBNAIL_MAX_SIDE))
+            thumb.save(thumb_path, "JPEG", quality=78)
+            vector = retriever.encode_image(image)
+            with connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO video_frames (
+                        video_id, frame_index, timestamp_ms, image_path, thumbnail_path,
+                        width, height, embedding_json, embedding_backend, created_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        video_id,
+                        frame_index,
+                        timestamp_ms,
+                        frame_rel.as_posix(),
+                        thumb_rel.as_posix(),
+                        image.width,
+                        image.height,
+                        encode_json(vector),
+                        retriever.name,
+                        utc_now(),
+                    ),
+                )
+            saved += 1
+            frame_index += 1
+    finally:
+        capture.release()
+
+    if saved == 0:
+        raise RuntimeError("没有成功抽取到可检索的视频帧")
+    return saved
+
+
 @app.post("/api/videos/upload")
-async def upload_video_placeholder(
+async def upload_video(
     file: UploadFile = File(...),
     dataset: str = Form("default"),
     user: dict[str, Any] = Depends(require_user),
 ) -> dict[str, Any]:
-    if file.content_type and not file.content_type.startswith(VIDEO_MIME_PREFIXES):
+    if not is_video_upload(file):
         raise HTTPException(status_code=400, detail="Unsupported video type")
-    safe_name = clean_filename(file.filename or "video")
+    safe_name = clean_filename(file.filename or "video.mp4")
     uid = uuid4().hex
-    stored_rel = Path(f"{utc_now()[:7]}") / f"{uid}_{safe_name}"
+    stored_rel = Path(utc_now()[:7]) / f"{uid}_{safe_name}"
     stored_path = settings.video_dir / stored_rel
-    stored_path.parent.mkdir(parents=True, exist_ok=True)
-    with stored_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    await save_video_stream(file, stored_path)
+
     with connect() as conn:
         cursor = conn.execute(
             """
             INSERT INTO videos (original_filename, stored_path, mime_type, dataset, status, message, uploaded_by, created_at)
-            VALUES (?, ?, ?, ?, 'queued_pending_backend', ?, ?, ?)
+            VALUES (?, ?, ?, ?, 'indexing', ?, ?, ?)
             """,
             (
                 safe_name,
                 stored_rel.as_posix(),
                 file.content_type or "video/*",
                 clean_label(dataset, "default"),
-                "Video retrieval API is reserved; frame indexing will be implemented after image retrieval is online.",
+                "正在抽帧并建立行人索引",
                 user["id"],
                 utc_now(),
             ),
         )
-        row = conn.execute("SELECT * FROM videos WHERE id = ?", (cursor.lastrowid,)).fetchone()
-    return {"video": row_to_dict(row)}
+        video_id = int(cursor.lastrowid)
+
+    try:
+        indexed_count = index_video_frames(video_id, stored_rel.as_posix())
+    except Exception as exc:
+        message = f"视频索引失败：{exc}"
+        update_video_status(video_id, "index_failed", message)
+        raise HTTPException(status_code=500, detail=message) from exc
+
+    update_video_status(video_id, "indexed", f"已抽取 {indexed_count} 帧，可用于行人视频检索")
+    return {"video": video_row_with_frame_count(video_id)}
+
+
+@app.delete("/api/videos/{video_id}")
+def delete_video(video_id: int, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    row = fetch_video(video_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Video not found")
+    if not can_manage_video(user, row):
+        raise HTTPException(status_code=403, detail="You can only delete your own uploads")
+    remove_video_frame_files(video_id)
+    with connect() as conn:
+        conn.execute("DELETE FROM videos WHERE id = ?", (video_id,))
+    try:
+        (settings.video_dir / row["stored_path"]).unlink(missing_ok=True)
+    except OSError:
+        pass
+    return {"ok": True, "deleted_video_id": video_id}
 
 
 @app.get("/api/videos")
 def list_videos(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
-    clauses, params = visibility_filters(user)
+    clauses, params = visibility_filters(user, "v")
     where = "WHERE " + " AND ".join(clauses) if clauses else ""
     with connect() as conn:
-        rows = conn.execute(f"SELECT * FROM videos {where} ORDER BY created_at DESC, id DESC", params).fetchall()
+        rows = conn.execute(
+            f"""
+            SELECT v.*, COUNT(f.id) AS frame_count
+            FROM videos v
+            LEFT JOIN video_frames f ON f.video_id = v.id
+            {where}
+            GROUP BY v.id
+            ORDER BY v.created_at DESC, v.id DESC
+            """,
+            params,
+        ).fetchall()
     return {"videos": [row_to_dict(row) for row in rows]}
 
 
+def format_timestamp_label(timestamp_ms: int) -> str:
+    total_seconds = max(0, timestamp_ms // 1000)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
+
+def video_frame_payload(
+    row: dict[str, Any],
+    score: float | None = None,
+    rank: int | None = None,
+) -> dict[str, Any]:
+    visible_score = None if score is None else max(0.0, min(1.0, score))
+    return {
+        "id": row["id"],
+        "rank": rank,
+        "score": score,
+        "display_score": visible_score,
+        "similarity_pct": None if visible_score is None else round(visible_score * 100, 1),
+        "person_key": None,
+        "thumbnail_url": media_url(row["thumbnail_path"]),
+        "url": media_url(row["image_path"]),
+        "frame_url": media_url(row["image_path"]),
+        "video_id": row["video_id"],
+        "video_filename": row["video_original_filename"],
+        "dataset": row["dataset"],
+        "frame_index": row["frame_index"],
+        "timestamp_ms": row["timestamp_ms"],
+        "timestamp_label": format_timestamp_label(int(row["timestamp_ms"])),
+        "width": row["width"],
+        "height": row["height"],
+        "created_at": row["created_at"],
+    }
+
+
+def all_video_frame_rows(user: dict[str, Any]) -> list[dict[str, Any]]:
+    clauses, params = visibility_filters(user, "v")
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    with connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT
+                f.*,
+                v.original_filename AS video_original_filename,
+                v.dataset,
+                v.uploaded_by,
+                v.status AS video_status
+            FROM video_frames f
+            JOIN videos v ON v.id = f.video_id
+            {where}
+            ORDER BY f.video_id ASC, f.timestamp_ms ASC
+            """,
+            params,
+        ).fetchall()
+    return [row_to_dict(row) or {} for row in rows]
+
+
+def update_video_frame_embedding(frame_id: int, vector: np.ndarray, backend: str) -> None:
+    with connect() as conn:
+        conn.execute(
+            """
+            UPDATE video_frames
+            SET embedding_json = ?, embedding_backend = ?
+            WHERE id = ?
+            """,
+            (encode_json(vector), backend, frame_id),
+        )
+
+
+def embedding_for_video_frame(row: dict[str, Any]) -> np.ndarray:
+    retriever = get_retriever(PERSON_TARGET)
+    vector = decode_json(row.get("embedding_json"))
+    if vector is not None and row.get("embedding_backend") == retriever.name:
+        return vector
+    frame_path = settings.upload_dir / row["image_path"]
+    with Image.open(frame_path) as image:
+        image.load()
+        vector = retriever.encode_image(image)
+    update_video_frame_embedding(row["id"], vector, retriever.name)
+    return vector
+
+
+def score_video_frames(
+    query_vector: np.ndarray,
+    *,
+    rows: list[dict[str, Any]],
+    top_k: int,
+) -> list[dict[str, Any]]:
+    retriever = get_retriever(PERSON_TARGET)
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for row in rows:
+        frame_vector = embedding_for_video_frame(row)
+        score = cosine_similarity(query_vector, frame_vector)
+        if retriever.semantic_text:
+            score = (score + 1.0) / 2.0
+        score = float(max(0.0, min(1.0, score)))
+        scored.append((score, row))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [
+        video_frame_payload(row, score=score, rank=index + 1)
+        for index, (score, row) in enumerate(scored[:top_k])
+    ]
+
+
+def run_video_text_search(
+    user: dict[str, Any],
+    query: str,
+    top_k: int,
+) -> dict[str, Any]:
+    start = time.perf_counter()
+    normalized, provider = normalize_for_retrieval(query)
+    retriever = get_retriever(PERSON_TARGET)
+    query_vector = retriever.encode_text(normalized)
+    rows = all_video_frame_rows(user)
+    results = score_video_frames(
+        query_vector,
+        rows=rows,
+        top_k=min(top_k, settings.search_max_top_k),
+    )
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    record_history(user["id"], "video_text", query, normalized, latency_ms, retriever.name, results)
+    return {
+        "mode": "video_text",
+        "query": query,
+        "translated_query": normalized,
+        "translation_provider": provider,
+        "backend": retriever.name,
+        "semantic_text": retriever.semantic_text,
+        "latency_ms": latency_ms,
+        "target_type": PERSON_TARGET,
+        "result_unit": "video_frame",
+        "results": results,
+    }
+
+
+def run_video_image_search(
+    user: dict[str, Any],
+    image: Image.Image,
+    label: str,
+    top_k: int,
+) -> dict[str, Any]:
+    start = time.perf_counter()
+    retriever = get_retriever(PERSON_TARGET)
+    query_vector = retriever.encode_image(image)
+    rows = all_video_frame_rows(user)
+    results = score_video_frames(
+        query_vector,
+        rows=rows,
+        top_k=min(top_k, settings.search_max_top_k),
+    )
+    latency_ms = int((time.perf_counter() - start) * 1000)
+    record_history(user["id"], "video_image", label, None, latency_ms, retriever.name, results)
+    return {
+        "mode": "video_image",
+        "query": label,
+        "backend": retriever.name,
+        "latency_ms": latency_ms,
+        "target_type": PERSON_TARGET,
+        "result_unit": "video_frame",
+        "results": results,
+    }
+
+
 @app.post("/api/search/video")
-def search_video_placeholder(_: dict[str, Any] = Depends(require_user)) -> JSONResponse:
-    return JSONResponse(
-        status_code=501,
-        content={
-            "detail": "Video retrieval interface is reserved. The current release indexes images only.",
-        },
+@app.post("/api/search/video/text")
+def search_video_text(payload: TextSearchIn, user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    return run_video_text_search(user, payload.text, payload.top_k)
+
+
+@app.post("/api/search/video/image")
+async def search_video_image_upload(
+    file: UploadFile = File(...),
+    top_k: int = Form(24),
+    user: dict[str, Any] = Depends(require_user),
+) -> dict[str, Any]:
+    data = await file.read(settings.max_upload_mb * 1024 * 1024 + 1)
+    image = open_image_from_upload(file, data)
+    return run_video_image_search(
+        user,
+        prepare_uploaded_image(image),
+        file.filename or "video query image",
+        top_k,
     )
 
 

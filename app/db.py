@@ -123,6 +123,26 @@ def init_db() -> None:
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(uploaded_by) REFERENCES users(id)
             );
+
+            CREATE TABLE IF NOT EXISTS video_frames (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id INTEGER NOT NULL,
+                frame_index INTEGER NOT NULL,
+                timestamp_ms INTEGER NOT NULL,
+                image_path TEXT NOT NULL,
+                thumbnail_path TEXT NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                embedding_json TEXT,
+                embedding_backend TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(video_id) REFERENCES videos(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_video_frames_video
+                ON video_frames(video_id);
+            CREATE INDEX IF NOT EXISTS idx_video_frames_timestamp
+                ON video_frames(video_id, timestamp_ms);
             """
         )
 

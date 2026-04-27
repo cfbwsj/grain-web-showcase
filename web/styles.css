@@ -529,6 +529,15 @@ button:disabled {
   background: #e7ecea;
 }
 
+.video-frame-card img {
+  aspect-ratio: 16 / 9;
+}
+
+.frame-open-link {
+  text-align: center;
+  text-decoration: none;
+}
+
 .image-info {
   display: grid;
   gap: 8px;

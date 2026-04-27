@@ -26,6 +26,14 @@ services:
         sync: false
       - key: ALLOW_RETRIEVER_FALLBACK
         value: "true"
+      - key: MAX_VIDEO_UPLOAD_MB
+        value: "768"
+      - key: VIDEO_FRAME_INTERVAL_SECONDS
+        value: "2.0"
+      - key: VIDEO_MAX_FRAMES
+        value: "160"
+      - key: VIDEO_FRAME_MAX_SIDE
+        value: "960"
       - key: SUPER_ADMIN_EMAIL
         value: admin@grain.local
       - key: SUPER_ADMIN_PASSWORD

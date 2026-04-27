@@ -95,6 +95,12 @@ class Settings:
     translation_num_beams: int = int(os.getenv("TRANSLATION_NUM_BEAMS", "4"))
     allow_retriever_fallback: bool = _bool_env("ALLOW_RETRIEVER_FALLBACK", True)
     max_upload_mb: int = int(os.getenv("MAX_UPLOAD_MB", "25"))
+    max_video_upload_mb: int = int(os.getenv("MAX_VIDEO_UPLOAD_MB", "768"))
+    video_frame_interval_seconds: float = float(
+        os.getenv("VIDEO_FRAME_INTERVAL_SECONDS", "2.0")
+    )
+    video_max_frames: int = int(os.getenv("VIDEO_MAX_FRAMES", "160"))
+    video_frame_max_side: int = int(os.getenv("VIDEO_FRAME_MAX_SIDE", "960"))
     search_default_top_k: int = int(os.getenv("SEARCH_DEFAULT_TOP_K", "24"))
     search_max_top_k: int = int(os.getenv("SEARCH_MAX_TOP_K", "100"))
 

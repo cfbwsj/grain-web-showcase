@@ -12,6 +12,8 @@ const MODE_LABELS = {
   text: "文本检索",
   attributes: "属性检索",
   image: "图片检索",
+  video_text: "视频文本检索",
+  video_image: "视频图片检索",
 };
 const TRANSLATION_PROVIDER_LABELS = {
   original: "原始文本",
@@ -247,6 +249,41 @@ function imageCard(image, options = {}) {
       </div>
     </article>
   `;
+}
+
+function videoFrameCard(frame) {
+  const score = frame.similarity_pct;
+  const chips = [
+    frame.dataset ? `<span class="chip">${escapeHtml(frame.dataset)}</span>` : "",
+    frame.timestamp_label ? `<span class="chip">${escapeHtml(frame.timestamp_label)}</span>` : "",
+    score != null ? `<span class="chip">${score}%</span>` : "",
+  ].join("");
+
+  return `
+    <article class="image-card video-frame-card">
+      <img src="${frame.thumbnail_url || frame.frame_url}" alt="${escapeHtml(frame.video_filename)} ${escapeHtml(frame.timestamp_label)}" loading="lazy" />
+      <div class="image-info">
+        <strong title="${escapeHtml(frame.video_filename)}">${escapeHtml(frame.video_filename)}</strong>
+        <div class="meta-line">${chips}</div>
+        ${score != null ? `<div class="score-bar"><span style="width:${score}%"></span></div>` : ""}
+        <a class="secondary-button frame-open-link" href="${frame.frame_url}" target="_blank" rel="noreferrer">打开帧图</a>
+      </div>
+    </article>
+  `;
+}
+
+function renderVideoResults(data) {
+  const metaParts = [
+    `${data.latency_ms} ms`,
+    `模型：${data.backend}`,
+    "分支：行人视频",
+    data.translation_provider ? `翻译方式：${TRANSLATION_PROVIDER_LABELS[data.translation_provider] || data.translation_provider}` : "",
+    data.translated_query && data.translated_query !== data.query ? `英文检索词：${data.translated_query}` : "",
+  ].filter(Boolean);
+  $("#videoSearchMeta").textContent = `${metaParts.join(" | ")} | 结果 ${data.results.length} 帧`;
+  $("#videoResultsGrid").innerHTML = data.results.length
+    ? data.results.map(videoFrameCard).join("")
+    : `<p class="muted">暂无视频帧结果，请先上传并完成视频索引。</p>`;
 }
 
 function renderResults(data, targetType) {
@@ -510,8 +547,19 @@ async function uploadVideo() {
   const form = new FormData();
   form.append("file", file);
   form.append("dataset", $("#videoDataset").value || "视频数据集");
-  await api("/api/videos/upload", { method: "POST", body: form });
-  toast("视频已加入队列。");
+  const button = $("#uploadVideoButton");
+  button.disabled = true;
+  button.textContent = "正在上传并索引...";
+  $("#videoReport").textContent = "视频上传后会抽取关键帧并写入行人检索索引，请稍等。";
+  try {
+    const data = await api("/api/videos/upload", { method: "POST", body: form });
+    const frameCount = data.video?.frame_count ?? 0;
+    $("#videoReport").textContent = `索引完成：已抽取 ${frameCount} 帧。`;
+    toast("视频索引完成。");
+  } finally {
+    button.disabled = false;
+    button.textContent = "上传并建立索引";
+  }
   await loadVideos();
 }
 
@@ -522,12 +570,60 @@ async function loadVideos() {
       <article class="history-item">
         <header>
           <strong>${escapeHtml(video.original_filename)}</strong>
-          <span class="muted">${escapeHtml(video.status)}</span>
+          <span class="muted">${escapeHtml(video.status)} | ${Number(video.frame_count || 0)} 帧</span>
         </header>
         <p class="muted">${escapeHtml(video.message || "")}</p>
+        <div class="card-actions">
+          <button class="ghost-button video-delete" data-video-id="${video.id}" type="button">删除视频</button>
+        </div>
       </article>
     `).join("")
-    : `<p class="muted">暂无排队中的视频。</p>`;
+    : `<p class="muted">暂无已上传视频。</p>`;
+}
+
+async function runVideoTextSearch() {
+  const text = $("#videoTextQuery").value.trim();
+  if (!text) {
+    toast("请输入视频检索文本。");
+    return;
+  }
+  const data = await api("/api/search/video/text", {
+    method: "POST",
+    body: JSON.stringify({
+      text,
+      top_k: Number($("#videoTextTopK").value || 24),
+      group_by_person: false,
+      target_type: PERSON_TARGET,
+    }),
+  });
+  renderVideoResults(data);
+}
+
+async function runVideoImageSearch() {
+  const file = $("#videoQueryImage").files[0];
+  if (!file) {
+    toast("请选择查询图片。");
+    return;
+  }
+  const form = new FormData();
+  form.append("file", file);
+  form.append("top_k", $("#videoImageTopK").value || "24");
+  const data = await api("/api/search/video/image", { method: "POST", body: form });
+  renderVideoResults(data);
+}
+
+function clearVideoResults() {
+  $("#videoSearchMeta").textContent = "等待执行视频行人检索任务。";
+  $("#videoResultsGrid").innerHTML = "";
+}
+
+async function deleteVideo(videoId) {
+  if (!window.confirm("确认删除这个视频及其抽帧索引吗？")) {
+    return;
+  }
+  await api(`/api/videos/${videoId}`, { method: "DELETE" });
+  toast("视频已删除。");
+  await loadVideos();
 }
 
 function bindFileLabel(inputId, labelId, fallbackText) {
@@ -595,6 +691,7 @@ function bindEvents() {
 
   bindFileLabel("personQueryImage", "personQueryImageName", "尚未选择文件");
   bindFileLabel("generalQueryImage", "generalQueryImageName", "尚未选择文件");
+  bindFileLabel("videoQueryImage", "videoQueryImageName", "尚未选择文件");
 
   $("#uploadFiles").addEventListener("change", (event) => {
     $("#uploadFolderCount").textContent = `已选择 ${event.target.files.length} 个文件`;
@@ -618,6 +715,9 @@ function bindEvents() {
   $("#createInvite").addEventListener("click", () => createInvite().catch((err) => toast(err.message)));
   $("#reindexButton").addEventListener("click", () => reindex().catch((err) => toast(err.message)));
   $("#uploadVideoButton").addEventListener("click", () => uploadVideo().catch((err) => toast(err.message)));
+  $("#runVideoTextSearch").addEventListener("click", () => runVideoTextSearch().catch((err) => toast(err.message)));
+  $("#runVideoImageSearch").addEventListener("click", () => runVideoImageSearch().catch((err) => toast(err.message)));
+  $("#clearVideoResults").addEventListener("click", clearVideoResults);
 
   document.body.addEventListener("click", (event) => {
     const searchButton = event.target.closest(".image-id-search");
@@ -632,10 +732,16 @@ function bindEvents() {
     if (deleteButton) {
       deleteImage(deleteButton.dataset.imageId).catch((err) => toast(err.message));
     }
+
+    const videoDeleteButton = event.target.closest(".video-delete");
+    if (videoDeleteButton) {
+      deleteVideo(videoDeleteButton.dataset.videoId).catch((err) => toast(err.message));
+    }
   });
 }
 
 bindEvents();
 clearResults(PERSON_TARGET);
 clearResults(GENERAL_TARGET);
+clearVideoResults();
 checkSession();

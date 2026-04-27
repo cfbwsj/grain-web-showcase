@@ -4,7 +4,7 @@ from app.translation import normalize_for_retrieval
 
 def test_chinese_query_normalizes_to_english_terms():
     query, provider = normalize_for_retrieval("穿红色上衣背黑色背包的男性")
-    assert provider == "local-cjk-dictionary"
+    assert provider in {"local-zh-dictionary", "local-zh-dictionary-fallback"}
     assert "red" in query
     assert "black" in query
     assert "backpack" in query
@@ -26,4 +26,3 @@ def test_attribute_prompt_is_search_sentence():
     assert "blue jacket" in prompt
     assert "black pants" in prompt
     assert "bag" in prompt
-

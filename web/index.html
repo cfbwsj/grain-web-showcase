@@ -304,20 +304,77 @@
         </section>
 
         <section id="videoView" class="view">
-          <section class="panel wide-panel">
-            <div class="panel-title">
-              <h3>视频队列</h3>
-              <span>视频上传与检索接口已预留，待图片检索稳定后继续完善</span>
+          <section class="search-hero">
+            <div>
+              <h3>视频行人检索</h3>
+              <p class="muted">上传视频后自动抽帧并建立行人索引，可用文字描述或查询图片定位命中的视频时间点。</p>
             </div>
-            <label>数据集名称 <input id="videoDataset" type="text" value="视频数据集" /></label>
-            <label class="dropzone large">
-              <input id="videoFile" type="file" accept="video/*" />
-              <span>选择视频文件</span>
-              <strong id="videoFileName">尚未选择文件</strong>
-            </label>
-            <button id="uploadVideoButton" class="secondary-button" type="button">上传到队列</button>
+            <div class="search-status">行人分支</div>
           </section>
-          <div id="videoList" class="history-list"></div>
+
+          <div class="tool-grid two-column-tools">
+            <section class="panel">
+              <div class="panel-title">
+                <h3>上传视频</h3>
+                <span>上传完成后会立即抽帧索引</span>
+              </div>
+              <label>数据集名称 <input id="videoDataset" type="text" value="视频数据集" /></label>
+              <label class="dropzone large">
+                <input id="videoFile" type="file" accept="video/*" />
+                <span>选择视频文件</span>
+                <strong id="videoFileName">尚未选择文件</strong>
+              </label>
+              <button id="uploadVideoButton" class="secondary-button" type="button">上传并建立索引</button>
+              <p id="videoReport" class="muted"></p>
+            </section>
+
+            <section class="panel">
+              <div class="panel-title">
+                <h3>视频文本检索</h3>
+                <span>用行人描述查找视频帧</span>
+              </div>
+              <textarea id="videoTextQuery" rows="4" placeholder="例如：穿黑色上衣、背包、正在行走的人"></textarea>
+              <div class="inline-controls">
+                <label>返回数量 <input id="videoTextTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
+              </div>
+              <button id="runVideoTextSearch" class="primary-button" type="button">开始视频文本检索</button>
+            </section>
+
+            <section class="panel">
+              <div class="panel-title">
+                <h3>视频图片检索</h3>
+                <span>用行人图片查找视频中的相似行人</span>
+              </div>
+              <label class="dropzone">
+                <input id="videoQueryImage" type="file" accept="image/*" />
+                <span>选择查询图片</span>
+                <strong id="videoQueryImageName">尚未选择文件</strong>
+              </label>
+              <div class="inline-controls">
+                <label>返回数量 <input id="videoImageTopK" class="small-input" type="number" min="1" max="100" value="24" /></label>
+              </div>
+              <button id="runVideoImageSearch" class="primary-button" type="button">开始视频图片检索</button>
+            </section>
+
+            <section class="panel">
+              <div class="panel-title">
+                <h3>已索引视频</h3>
+                <span>普通用户只显示自己上传的视频</span>
+              </div>
+              <div id="videoList" class="history-list compact-list"></div>
+            </section>
+          </div>
+
+          <section class="results-section">
+            <div class="section-bar">
+              <div>
+                <h3>视频检索结果</h3>
+                <p id="videoSearchMeta" class="muted">等待执行视频行人检索任务。</p>
+              </div>
+              <button id="clearVideoResults" class="ghost-button" type="button">清空结果</button>
+            </div>
+            <div id="videoResultsGrid" class="image-grid"></div>
+          </section>
         </section>
 
         <section id="adminView" class="view">
